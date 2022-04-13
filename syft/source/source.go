@@ -6,7 +6,9 @@ within this package.
 package source
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +36,7 @@ type Source struct {
 	path              string
 	mutex             *sync.Mutex
 	Exclusions        []string `hash:"ignore"`
+	makeFileResolver  func() (FileResolver, error)
 }
 
 // Input is an object that captures the detected user input regarding source location, scheme, and provider type.
@@ -388,6 +391,9 @@ func chain(chainID string, layers []LayerMetadata) string {
 func (s *Source) FileResolver(scope Scope) (FileResolver, error) {
 	switch s.Metadata.Scheme {
 	case DirectoryScheme, FileScheme:
+		if s.makeFileResolver != nil {
+			return s.makeFileResolver()
+		}
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
 		if s.directoryResolver == nil {
@@ -509,6 +515,24 @@ func getDirectoryExclusionFunctions(root string, exclusions []string) ([]pathFil
 				}
 			}
 			return false
+		},
+	}, nil
+}
+
+// NewFromFileBuffer creates a new source object tailored to catalog a given buffer.
+func NewFromFileBuffer(path string, buf *bytes.Buffer) (Source, error) {
+	if buf == nil {
+		return Source{}, errors.New("nil buffer is forbidden")
+	}
+	return Source{
+		mutex: &sync.Mutex{},
+		Metadata: Metadata{
+			Scheme: FileScheme,
+			Path:   path,
+		},
+		path: path,
+		makeFileResolver: func() (FileResolver, error) {
+			return newFileBufferResolver(path, buf)
 		},
 	}, nil
 }
