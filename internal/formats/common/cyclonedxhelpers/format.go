@@ -6,7 +6,6 @@ import (
 	"github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 
-	"github.com/anchore/syft/internal"
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/linux"
@@ -21,7 +20,7 @@ func ToFormatModel(s sbom.SBOM) *cyclonedx.BOM {
 	// https://github.com/CycloneDX/specification/blob/master/schema/bom-1.3-strict.schema.json#L36
 	// "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 	cdxBOM.SerialNumber = uuid.New().URN()
-	cdxBOM.Metadata = toBomDescriptor(internal.ApplicationName, s.Descriptor.Version, s.Source)
+	cdxBOM.Metadata = toBomDescriptor(s.Descriptor, s.Source)
 
 	packages := s.Artifacts.PackageCatalog.Sorted()
 	components := make([]cyclonedx.Component, len(packages))
@@ -99,14 +98,14 @@ func toOSComponent(distro *linux.Release) []cyclonedx.Component {
 }
 
 // NewBomDescriptor returns a new BomDescriptor tailored for the current time and "syft" tool details.
-func toBomDescriptor(name, version string, srcMetadata source.Metadata) *cyclonedx.Metadata {
+func toBomDescriptor(srcDescriptor sbom.Descriptor, srcMetadata source.Metadata) *cyclonedx.Metadata {
 	return &cyclonedx.Metadata{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Tools: &[]cyclonedx.Tool{
 			{
-				Vendor:  "anchore",
-				Name:    name,
-				Version: version,
+				Vendor:  srcDescriptor.Vendor,
+				Name:    srcDescriptor.Name,
+				Version: srcDescriptor.Version,
 			},
 		},
 		Component: toBomDescriptorComponent(srcMetadata),
