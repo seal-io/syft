@@ -65,11 +65,11 @@ func addRelationships(s *sbom.SBOM) {
 
 func spdxJsonRedactor(s []byte) []byte {
 	// each SBOM reports the time it was generated, which is not useful during snapshot testing
-	s = regexp.MustCompile(`"created": .*`).ReplaceAll(s, []byte("redacted"))
+	s = regexp.MustCompile(`"created":.*,"creators":`).ReplaceAll(s, []byte(`redacted,"creators":`))
 
 	// each SBOM reports a unique documentNamespace when generated, this is not useful for snapshot testing
-	s = regexp.MustCompile(`"documentNamespace": .*`).ReplaceAll(s, []byte("redacted"))
+	s = regexp.MustCompile(`"documentNamespace":.*,"packages":`).ReplaceAll(s, []byte(`redacted,"packages":`))
 
 	// the license list will be updated periodically, the value here should not be directly tested in snapshot tests
-	return regexp.MustCompile(`"licenseListVersion": .*`).ReplaceAll(s, []byte("redacted"))
+	return regexp.MustCompile(`"licenseListVersion":.*},"dataLicense":`).ReplaceAll(s, []byte(`redacted},"dataLicense":`))
 }

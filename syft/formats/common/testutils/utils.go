@@ -135,6 +135,7 @@ func ImageInput(t testing.TB, testImage string, options ...ImageOption) sbom.SBO
 		Source: src.Metadata,
 		Descriptor: sbom.Descriptor{
 			Name:    "syft",
+			Vendor:  "anchore",
 			Version: "v0.42.0-bogus",
 			// the application configuration should be persisted here, however, we do not want to import
 			// the application configuration in this package (it's reserved only for ingestion by the cmd package)
@@ -216,6 +217,7 @@ func DirectoryInput(t testing.TB) sbom.SBOM {
 		Source: src.Metadata,
 		Descriptor: sbom.Descriptor{
 			Name:    "syft",
+			Vendor:  "anchore",
 			Version: "v0.42.0-bogus",
 			// the application configuration should be persisted here, however, we do not want to import
 			// the application configuration in this package (it's reserved only for ingestion by the cmd package)

@@ -55,6 +55,7 @@ func TestSPDXJSONSPDXIDs(t *testing.T) {
 			},
 			Descriptor: sbom.Descriptor{
 				Name:    "syft",
+				Vendor:  "anchore",
 				Version: "v0.42.0-bogus",
 				Configuration: map[string]string{
 					"config-key": "config-value",
