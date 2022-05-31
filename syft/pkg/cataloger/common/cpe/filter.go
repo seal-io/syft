@@ -3,8 +3,9 @@ package cpe
 import (
 	"strings"
 
-	"github.com/anchore/syft/syft/pkg"
 	"github.com/facebookincubator/nvdtools/wfn"
+
+	"github.com/anchore/syft/syft/pkg"
 )
 
 const jenkinsName = "jenkins"
@@ -16,6 +17,7 @@ var cpeFilters = []filterFn{
 	disallowJiraClientServerMismatch,
 	disallowJenkinsServerCPEForPluginPackage,
 	disallowJenkinsCPEsNotAssociatedWithJenkins,
+	disallowJavaCPEsForCVE202126291,
 	disallowNonParseableCPEs,
 }
 
@@ -68,6 +70,14 @@ func disallowJiraClientServerMismatch(cpe pkg.CPE, p pkg.Package) bool {
 		if cpe.Vendor == wfn.Any || cpe.Vendor == "jira" || cpe.Vendor == "atlassian" {
 			return true
 		}
+	}
+	return false
+}
+
+// filter to prevent hitting https://nvd.nist.gov/vuln/detail/CVE-2021-26291.
+func disallowJavaCPEsForCVE202126291(cpe pkg.CPE, p pkg.Package) bool {
+	if p.Language == pkg.Java && cpe.Product == "maven" && cpe.Vendor == "apache" {
+		return true
 	}
 	return false
 }
