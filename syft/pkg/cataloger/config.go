@@ -16,7 +16,9 @@ func DefaultConfig() Config {
 
 func (c Config) Java() java.Config {
 	return java.Config{
-		SearchUnindexedArchives: c.Search.IncludeUnindexedArchives,
-		SearchIndexedArchives:   c.Search.IncludeIndexedArchives,
+		SearchByBuildTools:         c.Search.ByBuildTools,
+		SearchByBuildToolsWithMode: c.Search.ByBuildToolsWithMode,
+		SearchUnindexedArchives:    c.Search.IncludeUnindexedArchives,
+		SearchIndexedArchives:      c.Search.IncludeIndexedArchives,
 	}
 }

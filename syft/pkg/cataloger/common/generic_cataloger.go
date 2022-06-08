@@ -5,6 +5,7 @@ package common
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/anchore/syft/syft/artifact"
 
@@ -17,16 +18,39 @@ import (
 // GenericCataloger implements the Catalog interface and is responsible for dispatching the proper parser function for
 // a given path or glob pattern. This is intended to be reusable across many package cataloger types.
 type GenericCataloger struct {
-	globParsers       map[string]ParserFn
-	pathParsers       map[string]ParserFn
+	globParsers       map[string]RawParserFn
+	pathParsers       map[string]RawParserFn
 	upstreamCataloger string
 }
 
 // NewGenericCataloger if provided path-to-parser-function and glob-to-parser-function lookups creates a GenericCataloger
 func NewGenericCataloger(pathParsers map[string]ParserFn, globParsers map[string]ParserFn, upstreamCataloger string) *GenericCataloger {
+	var rawPathParsers, rawGlobParsers map[string]RawParserFn
+	for p := range pathParsers {
+		if rawPathParsers == nil {
+			rawPathParsers = make(map[string]RawParserFn, len(pathParsers))
+		}
+		rawPathParsers[p] = func(location source.Location, reader io.Reader) ([]*pkg.Package, []artifact.Relationship, error) {
+			return pathParsers[p](location.RealPath, reader)
+		}
+	}
+	for p := range globParsers {
+		if rawGlobParsers == nil {
+			rawGlobParsers = make(map[string]RawParserFn, len(globParsers))
+		}
+		rawGlobParsers[p] = func(location source.Location, reader io.Reader) ([]*pkg.Package, []artifact.Relationship, error) {
+			return globParsers[p](location.RealPath, reader)
+		}
+	}
+	return NewGenericCatalogerWithPreciseLocation(rawPathParsers, rawGlobParsers, upstreamCataloger)
+}
+
+// NewGenericCatalogerWithPreciseLocation if provided path-to-parser-function and glob-to-parser-function lookups creates a GenericCataloger,
+// it looks like NewGenericCataloger, but it can accept the source.Location as parsing parameter.
+func NewGenericCatalogerWithPreciseLocation(rawPathParsers map[string]RawParserFn, rawGlobParsers map[string]RawParserFn, upstreamCataloger string) *GenericCataloger {
 	return &GenericCataloger{
-		globParsers:       globParsers,
-		pathParsers:       pathParsers,
+		globParsers:       rawGlobParsers,
+		pathParsers:       rawPathParsers,
 		upstreamCataloger: upstreamCataloger,
 	}
 }
@@ -48,7 +72,7 @@ func (c *GenericCataloger) Catalog(resolver source.FileResolver) ([]pkg.Package,
 			return nil, nil, fmt.Errorf("unable to fetch contents at location=%v: %w", location, err)
 		}
 
-		discoveredPackages, discoveredRelationships, err := parser(location.RealPath, contentReader)
+		discoveredPackages, discoveredRelationships, err := parser(location, contentReader)
 		internal.CloseAndLogError(contentReader, location.VirtualPath)
 		if err != nil {
 			// TODO: should we fail? or only log?
@@ -69,8 +93,8 @@ func (c *GenericCataloger) Catalog(resolver source.FileResolver) ([]pkg.Package,
 }
 
 // SelectFiles takes a set of file trees and resolves and file references of interest for future cataloging
-func (c *GenericCataloger) selectFiles(resolver source.FilePathResolver) map[source.Location]ParserFn {
-	var parserByLocation = make(map[source.Location]ParserFn)
+func (c *GenericCataloger) selectFiles(resolver source.FilePathResolver) map[source.Location]RawParserFn {
+	var parserByLocation = make(map[source.Location]RawParserFn)
 
 	// select by exact path
 	for path, parser := range c.pathParsers {

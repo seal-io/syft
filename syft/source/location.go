@@ -115,3 +115,7 @@ func (l Location) Equals(other Location) bool {
 		l.VirtualPath == other.VirtualPath &&
 		l.FileSystemID == other.FileSystemID
 }
+
+func (l Location) VisibleRealPath() file.Path {
+	return l.ref.RealPath
+}

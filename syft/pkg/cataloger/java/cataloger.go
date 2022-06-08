@@ -9,6 +9,19 @@ import (
 
 // NewJavaCataloger returns a new Java archive cataloger object.
 func NewJavaCataloger(cfg Config) *common.GenericCataloger {
+	// java build tool matching
+	if cfg.SearchByBuildTools {
+		var opts = scaffoldingParseOptions{
+			mode: cfg.SearchByBuildToolsWithMode,
+		}
+		rawGlobParsers := map[string]common.RawParserFn{
+			"**/pom.xml":      parseJavaScaffolding(mavenScaffolding, opts),
+			"**/build.gradle": parseJavaScaffolding(gradleScaffolding, opts),
+		}
+
+		return common.NewGenericCatalogerWithPreciseLocation(nil, rawGlobParsers, "java-scaffolding-cataloger")
+	}
+
 	globParsers := make(map[string]common.ParserFn)
 
 	// java archive formats

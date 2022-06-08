@@ -1,6 +1,8 @@
 package java
 
 type Config struct {
-	SearchUnindexedArchives bool
-	SearchIndexedArchives   bool
+	SearchByBuildTools         bool
+	SearchByBuildToolsWithMode string
+	SearchUnindexedArchives    bool
+	SearchIndexedArchives      bool
 }
