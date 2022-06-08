@@ -195,3 +195,7 @@ func (r *mockResolver) AllLocations() <-chan Location {
 	}()
 	return c
 }
+
+func (r *mockResolver) RootPath() string {
+	return "/"
+}

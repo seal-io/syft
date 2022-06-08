@@ -238,3 +238,7 @@ func (r *allLayersResolver) AllLocations() <-chan Location {
 func (r *allLayersResolver) FileMetadataByLocation(location Location) (FileMetadata, error) {
 	return fileMetadataByLocation(r.img, location)
 }
+
+func (r *allLayersResolver) RootPath() string {
+	return "/"
+}

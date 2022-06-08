@@ -1,8 +1,6 @@
-package java
+package golang
 
 type Config struct {
 	SearchByBuildTools         bool
 	SearchByBuildToolsWithMode string
-	SearchUnindexedArchives    bool
-	SearchIndexedArchives      bool
 }

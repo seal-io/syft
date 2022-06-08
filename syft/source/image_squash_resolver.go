@@ -192,3 +192,7 @@ func (r *imageSquashResolver) FilesByMIMEType(types ...string) ([]Location, erro
 func (r *imageSquashResolver) FileMetadataByLocation(location Location) (FileMetadata, error) {
 	return fileMetadataByLocation(r.img, location)
 }
+
+func (r *imageSquashResolver) RootPath() string {
+	return "/"
+}

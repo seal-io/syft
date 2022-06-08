@@ -10,6 +10,8 @@ type FileResolver interface {
 	FilePathResolver
 	FileLocationResolver
 	FileMetadataResolver
+	// RootPath returns the location(root path) of the fetcher.
+	RootPath() string
 }
 
 // FileContentResolver knows how to get file content for a given Location

@@ -48,7 +48,7 @@ func parsePomXMLProject(path string, reader io.Reader) (*pkg.PomProject, error) 
 }
 
 func newPomProject(path string, p gopom.Project) *pkg.PomProject {
-	return &pkg.PomProject{
+	var pg = &pkg.PomProject{
 		Path:        path,
 		Parent:      pomParent(p, p.Parent),
 		GroupID:     resolveProperty(p, p.GroupID),
@@ -58,6 +58,17 @@ func newPomProject(path string, p gopom.Project) *pkg.PomProject {
 		Description: cleanDescription(p.Description),
 		URL:         p.URL,
 	}
+
+	if pg.Parent != nil {
+		if pg.GroupID == "" {
+			pg.GroupID = pg.Parent.GroupID
+		}
+		if pg.Version == "" {
+			pg.Version = pg.Parent.Version
+		}
+	}
+
+	return pg
 }
 
 func newPackageFromPom(pom gopom.Project, dep gopom.Dependency) *pkg.Package {
@@ -86,6 +97,13 @@ func decodePomXML(content io.Reader) (project gopom.Project, err error) {
 	decoder.CharsetReader = charset.NewReaderLabel
 	if err := decoder.Decode(&project); err != nil {
 		return project, fmt.Errorf("unable to unmarshal pom.xml: %w", err)
+	}
+
+	if project.GroupID == "" {
+		project.GroupID = project.Parent.GroupID
+	}
+	if project.Version == "" {
+		project.Version = project.Parent.Version
 	}
 
 	return project, nil

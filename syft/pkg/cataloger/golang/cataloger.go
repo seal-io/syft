@@ -9,7 +9,12 @@ import (
 )
 
 // NewGoModFileCataloger returns a new Go module cataloger object.
-func NewGoModFileCataloger() *generic.Cataloger {
+func NewGoModFileCataloger(cfg Config) *generic.Cataloger {
+	if cfg.SearchByBuildTools && cfg.SearchByBuildToolsWithMode == "online" {
+		return generic.NewCataloger("go-mod-scaffolding-cataloger").
+			WithParserByGlobs(scaffoldingParser(), "**/go.mod")
+	}
+
 	return generic.NewCataloger("go-mod-file-cataloger").
 		WithParserByGlobs(parseGoModFile, "**/go.mod")
 }

@@ -94,6 +94,10 @@ func (r *fileBufferResolver) FileMetadataByLocation(location Location) (FileMeta
 	panic("not implement")
 }
 
+func (r *fileBufferResolver) RootPath() string {
+	return filepath.Dir(r.path)
+}
+
 func newFileBufferReader(buf *bytes.Buffer) fileBufferReader {
 	return fileBufferReader{
 		Buffer: buf,

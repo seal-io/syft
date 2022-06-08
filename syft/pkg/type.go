@@ -28,6 +28,7 @@ const (
 	ConanPkg         Type = "conan"
 	PortagePkg       Type = "portage"
 	HackagePkg       Type = "hackage"
+	FilePkg          Type = "file"
 )
 
 // AllPkgs represents all supported package types

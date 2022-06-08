@@ -160,3 +160,7 @@ func (r MockResolver) FilesByMIMEType(types ...string) ([]Location, error) {
 	}
 	return locations, nil
 }
+
+func (r MockResolver) RootPath() string {
+	return "/"
+}

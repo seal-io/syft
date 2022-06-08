@@ -480,6 +480,10 @@ func (r *directoryResolver) FilesByMIMEType(types ...string) ([]Location, error)
 	return locations, nil
 }
 
+func (r directoryResolver) RootPath() string {
+	return r.path
+}
+
 func windowsToPosix(windowsPath string) (posixPath string) {
 	// volume should be encoded at the start (e.g /c/<path>) where c is the volume
 	volumeName := filepath.VolumeName(windowsPath)

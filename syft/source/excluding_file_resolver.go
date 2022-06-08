@@ -80,6 +80,10 @@ func (r *excludingResolver) AllLocations() <-chan Location {
 	return c
 }
 
+func (r *excludingResolver) RootPath() string {
+	return r.delegate.RootPath()
+}
+
 func locationMatches(location *Location, exclusionFn excludeFn) bool {
 	return exclusionFn(location.RealPath) || exclusionFn(location.VirtualPath)
 }

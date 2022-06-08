@@ -102,3 +102,19 @@ func Sort(pkgs []Package) {
 		return pkgs[i].Name < pkgs[j].Name
 	})
 }
+
+// FileToPackage converting file to package,
+// the pkg id used in dependency relationship
+func FileToPackage(path string) (*Package, error) {
+	p := &Package{
+		Name: path,
+		Type: FilePkg,
+	}
+
+	id, err := artifact.IDByHash(path)
+	if err != nil {
+		return nil, err
+	}
+	p.OverrideID(id)
+	return p, nil
+}
