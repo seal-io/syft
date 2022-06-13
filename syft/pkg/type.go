@@ -9,6 +9,7 @@ const (
 	// the full set of supported packages
 	UnknownPkg       Type = "UnknownPackage"
 	ApkPkg           Type = "apk"
+	AlpmPkg          Type = "alpm"
 	GemPkg           Type = "gem"
 	DebPkg           Type = "deb"
 	RpmPkg           Type = "rpm"
@@ -28,6 +29,7 @@ const (
 // AllPkgs represents all supported package types
 var AllPkgs = []Type{
 	ApkPkg,
+	AlpmPkg,
 	GemPkg,
 	DebPkg,
 	RpmPkg,
@@ -48,6 +50,8 @@ func (t Type) PackageURLType() string {
 	switch t {
 	case ApkPkg:
 		return "alpine"
+	case AlpmPkg:
+		return "alpm"
 	case GemPkg:
 		return packageurl.TypeGem
 	case DebPkg:
@@ -91,6 +95,8 @@ func TypeByName(name string) Type {
 		return DebPkg
 	case packageurl.TypeRPM:
 		return RpmPkg
+	case "alpm":
+		return AlpmPkg
 	case "alpine":
 		return ApkPkg
 	case packageurl.TypeMaven:
