@@ -6,9 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/anchore/syft/syft/pkg/cataloger/common"
-	"github.com/anchore/syft/syft/source"
-	"github.com/google/uuid"
 	"io"
 	"io/ioutil"
 	"os"
@@ -16,6 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/anchore/syft/syft/pkg/cataloger/common"
+	"github.com/anchore/syft/syft/source"
 
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
@@ -62,6 +64,10 @@ func (p *scaffoldingParser) parse(target scaffolding) ([]*pkg.Package, []artifac
 	var ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	var (
+		pkgs          []*pkg.Package
+		relationships []artifact.Relationship
+	)
 	switch target {
 	default:
 		return nil, nil, errors.New("unknown scaffolding")
@@ -70,20 +76,34 @@ func (p *scaffoldingParser) parse(target scaffolding) ([]*pkg.Package, []artifac
 			// temporary build directory
 			return nil, nil, nil
 		}
-		if _, err := os.Stat(filepath.Join(filepath.Dir(p.currentDirpath), "pom.xml")); err == nil {
+		_, err := os.Stat(filepath.Join(filepath.Dir(p.currentDirpath), "pom.xml"))
+		if err == nil {
 			// NB(thxCode): since parent project can take over the full transitive dependencies,
 			// we can ignore child projects.
 			return nil, nil, nil
 		}
-		return p.parseMaven(ctx)
+		pkgs, relationships, err = p.parseMaven(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
 	case gradleScaffolding:
-		if _, err := os.Stat(filepath.Join(filepath.Dir(p.currentDirpath), "build.gradle")); err == nil {
+		_, err := os.Stat(filepath.Join(filepath.Dir(p.currentDirpath), "build.gradle"))
+		if err == nil {
 			// NB(thxCode): since parent project can take over the full transitive dependencies,
 			// we can ignore child projects.
 			return nil, nil, nil
 		}
-		return p.parseGradle(ctx)
+		pkgs, relationships, err = p.parseGradle(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+
+	for _, pg := range pkgs {
+		addPURL(pg)
+	}
+
+	return pkgs, relationships, nil
 }
 
 func (p *scaffoldingParser) parseMaven(ctx context.Context) (pkgs []*pkg.Package, relationships []artifact.Relationship, berr error) {
@@ -163,9 +183,6 @@ func (p *scaffoldingParser) parseMaven(ctx context.Context) (pkgs []*pkg.Package
 
 func (p *scaffoldingParser) parseGradle(ctx context.Context) (pkgs []*pkg.Package, relationships []artifact.Relationship, berr error) {
 	var cmdName = "gradle"
-	if _, err := os.Stat(filepath.Join(p.currentDirpath, "gradlew")); err == nil {
-		cmdName = filepath.Join(p.currentDirpath, "gradlew")
-	}
 
 	// fetch groups and main pkg
 	var projects []string
