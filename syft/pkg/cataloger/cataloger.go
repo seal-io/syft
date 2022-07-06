@@ -21,6 +21,7 @@ import (
 	"github.com/anchore/syft/syft/pkg/cataloger/java"
 	"github.com/anchore/syft/syft/pkg/cataloger/javascript"
 	"github.com/anchore/syft/syft/pkg/cataloger/php"
+	"github.com/anchore/syft/syft/pkg/cataloger/portage"
 	"github.com/anchore/syft/syft/pkg/cataloger/python"
 	"github.com/anchore/syft/syft/pkg/cataloger/rpmdb"
 	"github.com/anchore/syft/syft/pkg/cataloger/ruby"
@@ -54,6 +55,7 @@ func ImageCatalogers(src *source.Source, cfg Config) []Cataloger {
 		apkdb.NewApkdbCataloger(),
 		golang.NewGoModuleBinaryCataloger(),
 		dotnet.NewDotnetDepsCataloger(),
+		portage.NewPortageCataloger(),
 	}, cfg.Catalogers)
 }
 
@@ -76,6 +78,7 @@ func DirectoryCatalogers(src *source.Source, cfg Config) []Cataloger {
 		dart.NewPubspecLockCataloger(),
 		dotnet.NewDotnetDepsCataloger(),
 		cpp.NewConanfileCataloger(),
+		portage.NewPortageCataloger(),
 	}, cfg.Catalogers)
 }
 
@@ -101,6 +104,7 @@ func AllCatalogers(src *source.Source, cfg Config) []Cataloger {
 		php.NewPHPComposerInstalledCataloger(),
 		php.NewPHPComposerLockCataloger(),
 		cpp.NewConanfileCataloger(),
+		portage.NewPortageCataloger(),
 	}, cfg.Catalogers)
 }
 
