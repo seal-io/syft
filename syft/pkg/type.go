@@ -50,6 +50,7 @@ var AllPkgs = []Type{
 	CocoapodsPkg,
 	ConanPkg,
 	PortagePkg,
+	HackagePkg,
 }
 
 // PackageURLType returns the PURL package type for the current package.
@@ -87,6 +88,8 @@ func (t Type) PackageURLType() string {
 		return packageurl.TypeConan
 	case PortagePkg:
 		return "portage"
+	case HackagePkg:
+		return packageurl.TypeHackage
 	default:
 		// TODO: should this be a "generic" purl type instead?
 		return ""
@@ -134,6 +137,8 @@ func TypeByName(name string) Type {
 		return CocoapodsPkg
 	case packageurl.TypeConan:
 		return ConanPkg
+	case packageurl.TypeHackage:
+		return HackagePkg
 	case "portage":
 		return PortagePkg
 	default:
