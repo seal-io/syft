@@ -5,6 +5,7 @@ import (
 
 	"github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
+	"github.com/scylladb/go-set/strset"
 
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
@@ -23,9 +24,14 @@ func ToFormatModel(s sbom.SBOM) *cyclonedx.BOM {
 	cdxBOM.Metadata = toBomDescriptor(s.Descriptor, s.Source)
 
 	packages := s.Artifacts.PackageCatalog.Sorted()
-	components := make([]cyclonedx.Component, len(packages))
-	for i, p := range packages {
-		components[i] = encodeComponent(p)
+	var components []cyclonedx.Component
+	for _, p := range packages {
+		comp := encodeComponent(p)
+		if isRootComponent(&comp) {
+			cdxBOM.Metadata.Component = &comp
+			continue
+		}
+		components = append(components, comp)
 	}
 	components = append(components, toOSComponent(s.Artifacts.LinuxDistribution)...)
 	cdxBOM.Components = &components
@@ -133,6 +139,7 @@ func isExpressiblePackageRelationship(ty artifact.RelationshipType) bool {
 
 func toDependencies(relationships []artifact.Relationship) []cyclonedx.Dependency {
 	result := make([]cyclonedx.Dependency, 0)
+	resultMap := make(map[string]*strset.Set)
 	for _, r := range relationships {
 		exists := isExpressiblePackageRelationship(r.Type)
 		if !exists {
@@ -140,11 +147,25 @@ func toDependencies(relationships []artifact.Relationship) []cyclonedx.Dependenc
 			continue
 		}
 
-		innerDeps := []cyclonedx.Dependency{}
-		innerDeps = append(innerDeps, cyclonedx.Dependency{Ref: string(r.From.ID())})
+		ref := string(r.From.ID())
+		if _, ok := resultMap[ref]; !ok {
+			resultMap[ref] = strset.New(string(r.To.ID()))
+		} else {
+			resultMap[ref].Add(string(r.To.ID()))
+		}
+	}
+
+	for ref, r := range resultMap {
+		var deps []cyclonedx.Dependency
+		for _, v := range r.List() {
+			deps = append(deps, cyclonedx.Dependency{
+				Ref: v,
+			})
+		}
+
 		result = append(result, cyclonedx.Dependency{
-			Ref:          string(r.To.ID()),
-			Dependencies: &innerDeps,
+			Ref:          ref,
+			Dependencies: &deps,
 		})
 	}
 	return result
