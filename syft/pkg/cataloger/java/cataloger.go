@@ -15,8 +15,8 @@ func NewJavaCataloger(cfg Config) *common.GenericCataloger {
 			mode: cfg.SearchByBuildToolsWithMode,
 		}
 		rawGlobParsers := map[string]common.RawParserFn{
-			"**/pom.xml":      parseJavaScaffolding(mavenScaffolding, opts),
-			"**/build.gradle": parseJavaScaffolding(gradleScaffolding, opts),
+			"**/pom.xml":      javaScaffoldingParserFn(mavenScaffolding, opts),
+			"**/build.gradle": javaScaffoldingParserFn(gradleScaffolding, opts),
 		}
 
 		return common.NewGenericCatalogerWithPreciseLocation(nil, rawGlobParsers, "java-scaffolding-cataloger")
