@@ -223,7 +223,13 @@ func (p *gradleScaffoldingParser) propertyCommand(ctx context.Context) (*exec.Cm
 	// :properties show properties for root project;
 	// properties show properties for current dir, if we run it under subproject A dir, we can only get subprojects for A,
 	// we can get all subprojects while scan root project, so we use :properties here
-	propertiesCmdArgs := ":properties --quiet --no-daemon --console=plain --offline"
+	propertiesCmdArgs := ":properties --quiet --no-daemon --console=plain"
+	switch p.mode {
+	case "offline":
+		propertiesCmdArgs += " --offline"
+	case "online", "":
+	}
+
 	propertiesCmd, err := newCommand(ctx, "gradle", strings.Split(propertiesCmdArgs, " ")...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating gradle properties discovery: %w", err)
