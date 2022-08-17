@@ -3,9 +3,7 @@ package java
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -23,7 +21,8 @@ const (
 )
 
 type scaffoldingParseOptions struct {
-	mode string
+	mode   string
+	source *source.Source
 }
 
 func javaScaffoldingParserFn(in scaffolding, opts scaffoldingParseOptions) common.RawParserFn {
@@ -53,36 +52,23 @@ func parseScaffolding(target scaffolding, location source.Location, reader io.Re
 			return nil, nil, nil
 		}
 
-		mavenParser := newMavenScaffoldingParser(mode, currentFilepath, relativeFilePath, reader)
+		mavenParser := newMavenScaffoldingParser(mode, currentFilepath, relativeFilePath, reader, options.source)
 		pkgs, relationships, err = mavenParser.parse(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
 	case gradleScaffolding:
-		gradleParser := newGradleScaffoldingParser(mode, currentFilepath)
+		gradleParser := newGradleScaffoldingParser(mode, currentFilepath, relativeFilePath, options.source)
 		pkgs, relationships, err = gradleParser.parse(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	for _, pg := range pkgs {
-		addPURL(pg)
-	}
-
 	return pkgs, relationships, nil
 }
 
-func newCommand(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
-	var binPath, err = exec.LookPath(name)
-	if err != nil {
-		return nil, fmt.Errorf("%s is required for runtime: %w", name, err)
-	}
-	var cmd = exec.CommandContext(ctx, binPath, args...)
-	return cmd, nil
-}
-
-func toPackage(groupID, artifactID, version, virtualPath string, isRoot bool, mainProject *pkg.PomProject) *pkg.Package {
+func toPackage(groupID, artifactID, version string, curProj *pkg.PomProject) *pkg.Package {
 	pomProperties := &pkg.PomProperties{
 		GroupID:    groupID,
 		ArtifactID: artifactID,
@@ -90,17 +76,26 @@ func toPackage(groupID, artifactID, version, virtualPath string, isRoot bool, ma
 		Name:       artifactID,
 	}
 
-	return &pkg.Package{
+	p := &pkg.Package{
 		Name:         pomProperties.ArtifactID,
 		Version:      pomProperties.Version,
 		Language:     pkg.Java,
 		Type:         pomProperties.PkgTypeIndicated(),
 		MetadataType: pkg.JavaMetadataType,
 		Metadata: pkg.JavaMetadata{
-			PomProject:    mainProject,
-			IsRootPackage: isRoot,
-			VirtualPath:   virtualPath,
+			PomProject:    curProj,
 			PomProperties: pomProperties,
 		},
+	}
+	addPURL(p)
+	p.SetID()
+	return p
+}
+
+func toRelation(from, to *pkg.Package) *artifact.Relationship {
+	return &artifact.Relationship{
+		From: from,
+		To:   to,
+		Type: artifact.DependencyOfRelationship,
 	}
 }

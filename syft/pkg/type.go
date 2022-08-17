@@ -22,6 +22,7 @@ const (
 	KbPkg            Type = "msrc-kb"
 	DartPubPkg       Type = "dart-pub"
 	DotnetPkg        Type = "dotnet"
+	FilePkg          Type = "file"
 )
 
 // AllPkgs represents all supported package types

@@ -27,10 +27,6 @@ func ToFormatModel(s sbom.SBOM) *cyclonedx.BOM {
 	var components []cyclonedx.Component
 	for _, p := range packages {
 		comp := encodeComponent(p)
-		if isRootComponent(&comp) {
-			cdxBOM.Metadata.Component = &comp
-			continue
-		}
 		components = append(components, comp)
 	}
 	components = append(components, toOSComponent(s.Artifacts.LinuxDistribution)...)

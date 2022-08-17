@@ -33,6 +33,10 @@ func (p *Package) OverrideID(id artifact.ID) {
 }
 
 func (p *Package) SetID() {
+	if p.id != "" {
+		return
+	}
+
 	id, err := artifact.IDByHash(p)
 	if err != nil {
 		// TODO: what to do in this case?
@@ -67,4 +71,20 @@ func (p *Package) merge(other Package) error {
 		p.PURL = other.PURL
 	}
 	return nil
+}
+
+// FileToPackage converting file to package,
+// the pkg id used in dependency relationship
+func FileToPackage(path string) (*Package, error) {
+	p := &Package{
+		Name: path,
+		Type: FilePkg,
+	}
+
+	id, err := artifact.IDByHash(path)
+	if err != nil {
+		return nil, err
+	}
+	p.OverrideID(id)
+	return p, nil
 }

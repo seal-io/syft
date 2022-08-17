@@ -26,9 +26,8 @@ type JavaMetadata struct {
 	PomProperties  *PomProperties `mapstructure:"PomProperties" json:"pomProperties,omitempty" cyclonedx:"-"`
 	PomProject     *PomProject    `mapstructure:"PomProject" json:"pomProject,omitempty"`
 	ArchiveDigests []file.Digest  `hash:"ignore" json:"digest,omitempty"`
-	PURL           string         `hash:"ignore" json:"-"`                                   // pURLs and CPEs are ignored for package IDs
-	Parent         *Package       `hash:"ignore" json:"-"`                                   // note: the parent cannot be included in the minimal definition of uniqueness since this field is not reproducible in an encode-decode cycle (is lossy).
-	IsRootPackage  bool           `json:"isRootPackage,omitempty" cyclonedx:"isRootPackage"` // marks whether the package is the root node, will replace cyclonedx root component with this package while true
+	PURL           string         `hash:"ignore" json:"-"` // pURLs and CPEs are ignored for package IDs
+	Parent         *Package       `hash:"ignore" json:"-"` // note: the parent cannot be included in the minimal definition of uniqueness since this field is not reproducible in an encode-decode cycle (is lossy).
 }
 
 // PomProperties represents the fields of interest extracted from a Java archive's pom.properties file.

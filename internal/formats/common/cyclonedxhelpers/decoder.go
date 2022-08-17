@@ -181,10 +181,6 @@ func getPropertyValue(component *cyclonedx.Component, name string) string {
 	return ""
 }
 
-func isRootComponent(component *cyclonedx.Component) bool {
-	return getPropertyValue(component, "syft:metadata:isRootPackage") == "true"
-}
-
 func collectRelationships(bom *cyclonedx.BOM, s *sbom.SBOM, idMap map[string]interface{}) {
 	if bom.Dependencies == nil {
 		return
