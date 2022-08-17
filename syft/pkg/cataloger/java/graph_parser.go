@@ -43,15 +43,8 @@ func parseGraph(scanner *bufio.Scanner, isLineValid isLineValid, parser parseLin
 			directlyDependencies = append(directlyDependencies, child)
 		} else {
 			parent := parents[len(parents)-1]
-			var fromID = &PackageURL{Package: *parent}
-			var toID = &PackageURL{Package: *child}
-			relation := artifact.Relationship{
-				From: fromID,
-				To:   toID,
-				Type: artifact.DependencyOfRelationship,
-			}
-
-			relationships = append(relationships, relation)
+			relation := toRelation(parent, child)
+			relationships = append(relationships, *relation)
 		}
 		parents = append(parents, child)
 		pkgs = append(pkgs, child)

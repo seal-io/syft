@@ -2,12 +2,12 @@ package java
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,6 +15,8 @@ import (
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
+	"github.com/anchore/syft/syft/pkg/cataloger/common/command"
+	"github.com/anchore/syft/syft/source"
 	"github.com/google/uuid"
 )
 
@@ -23,13 +25,15 @@ var (
 	mavenDigraphPattern    = regexp.MustCompile(`digraph \"[-:.\w]+\"`)
 )
 
-func newMavenScaffoldingParser(mode, fullFilepath, relativeFilePath string, reader io.Reader) *mavenScaffoldingParser {
+func newMavenScaffoldingParser(mode, fullFilepath, relativeFilePath string, reader io.Reader, src *source.Source) *mavenScaffoldingParser {
 	return &mavenScaffoldingParser{
 		currentFilepath:  fullFilepath,
 		currentDirPath:   filepath.Dir(fullFilepath),
 		relativeFilePath: relativeFilePath,
 		reader:           reader,
 		mode:             mode,
+		source:           src,
+		command:          "mvn",
 	}
 }
 
@@ -39,18 +43,19 @@ type mavenScaffoldingParser struct {
 	relativeFilePath string
 	reader           io.Reader
 	mode             string
+	source           *source.Source
+	command          string
 }
 
 // parse generate the packages and relationships for current project
 func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package, relationships []artifact.Relationship, berr error) {
-	// fetch main pkg
 	log.Infof("parsing maven dependency file %s", p.currentFilepath)
-	mainPkgPomProject, err := parsePomXML(p.currentFilepath, p.reader)
+	isSubproject, curProj, err := p.parseCurrentFile()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing pom xml: %w", err)
 	}
 
-	if p.isSubproject(mainPkgPomProject) {
+	if isSubproject {
 		// since root project can take over the full transitive dependencies,
 		// ignore subprojects
 		log.Infof("ignore maven subproject dependency file %s", p.currentFilepath)
@@ -68,32 +73,44 @@ func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package
 	}()
 
 	log.Infof("downloading maven dependencies for %s", p.currentFilepath)
-	dependenciesCmd, err := p.dependenciesCommand(ctx, depCmdOutputFile.Name())
-	if err != nil {
+	if err = p.runGetDependencies(ctx, depCmdOutputFile.Name()); err != nil {
 		return nil, nil, err
 	}
 
-	err = dependenciesCmd.Run()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error running maven transitive dependencies discovery: %w", err)
-	}
-
 	log.Infof("generating and parsing maven dependency tree for %s", p.currentFilepath)
-	pkgs, relationships = p.parseDependencies(depCmdOutputFile, mainPkgPomProject)
+	pkgs, relationships, err = p.parseDependencies(depCmdOutputFile, curProj)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	log.Infof("finished parsing maven dependency file %s, found %d packages, %d relationships", p.currentFilepath, len(pkgs), len(relationships))
 	return pkgs, relationships, nil
 }
 
-// parseDependencies parse dependencies tree
-func (p *mavenScaffoldingParser) parseDependencies(cmdOutputFile *os.File, mainPkgPomProject *pkg.PomProject) (pkgs []*pkg.Package, relationships []artifact.Relationship) {
-	mainPkg, mainPkgRelation := p.packageFromPomProject(mainPkgPomProject)
-	pkgs = append(pkgs, mainPkg)
-	if mainPkgRelation != nil {
-		relationships = append(relationships, *mainPkgRelation)
+// parseCurrentFile get project gav from current file, and generate relation between source and current file
+func (p *mavenScaffoldingParser) parseCurrentFile() (bool, *pkg.PomProject, error) {
+	proj, err := parsePomXML(p.relativeFilePath, p.reader)
+	if err != nil {
+		return false, nil, fmt.Errorf("error parsing pom xml: %w", err)
 	}
 
-	var dependenciesCmdOutputScanner = bufio.NewScanner(cmdOutputFile)
+	if p.isSubproject(proj) {
+		return true, nil, nil
+	}
+
+	return false, proj, nil
+}
+
+// parseDependencies parse dependencies tree
+func (p *mavenScaffoldingParser) parseDependencies(cmdOutputFile *os.File, curProj *pkg.PomProject) (pkgs []*pkg.Package, relationships []artifact.Relationship, err error) {
+	curPkg, curRelation, err := p.genCurrentFileDep()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pkgs = []*pkg.Package{curPkg}
+	relationships = []artifact.Relationship{*curRelation}
+	dependenciesCmdOutputScanner := bufio.NewScanner(cmdOutputFile)
 	for dependenciesCmdOutputScanner.Scan() {
 		// process
 		var line = dependenciesCmdOutputScanner.Text()
@@ -107,11 +124,11 @@ func (p *mavenScaffoldingParser) parseDependencies(cmdOutputFile *os.File, mainP
 		if strings.Contains(line, "->") {
 			// type: dependency
 			// line example: "org.apache.logging.log4j:log4j-core:jar:2.18.0:compile" -> "org.apache.logging.log4j:log4j-api:jar:2.18.0:compile" ;
-			toPkg, relation, err = p.parseRelationLine(line, mainPkgPomProject)
+			toPkg, relation, err = p.parseRelationLine(line, curProj, curPkg)
 		} else if mavenDigraphPattern.MatchString(line) {
 			// type: digraph
 			// line example: digraph "io.seal.simple:simple-java-maven-app:jar:1.0-SNAPSHOT"
-			toPkg, relation, err = p.parseDigraphLine(line, mainPkgPomProject)
+			toPkg, relation, err = p.parseDigraphLine(line, curPkg, curProj)
 		}
 
 		if err != nil {
@@ -129,7 +146,7 @@ func (p *mavenScaffoldingParser) parseDependencies(cmdOutputFile *os.File, mainP
 }
 
 // parseRelationLine handle the line include relation
-func (p *mavenScaffoldingParser) parseRelationLine(line string, pomProject *pkg.PomProject) (*pkg.Package, *artifact.Relationship, error) {
+func (p *mavenScaffoldingParser) parseRelationLine(line string, curProj *pkg.PomProject, curPkg *pkg.Package) (*pkg.Package, *artifact.Relationship, error) {
 	// line example: "org.apache.logging.log4j:log4j-core:jar:2.18.0:compile" -> "org.apache.logging.log4j:log4j-api:jar:2.18.0:compile" ;
 	arr := strings.Split(line, "->")
 	if len(arr) < 2 {
@@ -150,28 +167,27 @@ func (p *mavenScaffoldingParser) parseRelationLine(line string, pomProject *pkg.
 
 	lAccurate := lRough[1 : len(lRough)-1]
 	rAccurate := rRough[1 : len(rRough)-3]
-	fromPkg, err := p.packageFromGavStr(lAccurate, pomProject)
+	fromGroupID, fromArtifactID, fromVersion, err := p.gavFromStr(lAccurate)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	toPkg, err := p.packageFromGavStr(rAccurate, pomProject)
+	fromPkg := toPackage(fromGroupID, fromArtifactID, fromVersion, curProj)
+	if isCurrentProject(fromGroupID, fromArtifactID, fromVersion, curProj) {
+		fromPkg = curPkg
+	}
+
+	toGroupID, toArtifactID, toVersion, err := p.gavFromStr(rAccurate)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	fromID := &PackageURL{Package: *fromPkg}
-	toID := &PackageURL{Package: *toPkg}
-	relation := &artifact.Relationship{
-		From: fromID,
-		To:   toID,
-		Type: artifact.DependencyOfRelationship,
-	}
+	toPkg := toPackage(toGroupID, toArtifactID, toVersion, curProj)
+	relation := toRelation(fromPkg, toPkg)
 	return toPkg, relation, nil
 }
 
 // parseDigraphLine handle the line include digraph info
-func (p *mavenScaffoldingParser) parseDigraphLine(line string, pomProject *pkg.PomProject) (*pkg.Package, *artifact.Relationship, error) {
+func (p *mavenScaffoldingParser) parseDigraphLine(line string, curPkg *pkg.Package, curProj *pkg.PomProject) (*pkg.Package, *artifact.Relationship, error) {
 	// line example: } digraph "io.seal.simple:child-1:jar:1.0-SNAPSHOT" {
 	matches := mavenDependencyPattern.FindStringSubmatch(line)
 	if len(matches) < 5 {
@@ -182,21 +198,12 @@ func (p *mavenScaffoldingParser) parseDigraphLine(line string, pomProject *pkg.P
 	artifactID := matches[2]
 	version := matches[4]
 
-	if artifactID == pomProject.ArtifactID &&
-		groupID == pomProject.GroupID &&
-		version == pomProject.Version {
+	if isCurrentProject(groupID, artifactID, version, curProj) {
 		return nil, nil, nil
 	}
 
-	pkg := toPackage(groupID, artifactID, version, "", false, pomProject)
-	mainPkg, _ := p.packageFromPomProject(pomProject)
-	fromID := &PackageURL{Package: *mainPkg}
-	toID := &PackageURL{Package: *pkg}
-	relation := &artifact.Relationship{
-		From: fromID,
-		To:   toID,
-		Type: artifact.DependencyOfRelationship,
-	}
+	pkg := toPackage(groupID, artifactID, version, curProj)
+	relation := toRelation(curPkg, pkg)
 	return pkg, relation, nil
 }
 
@@ -224,7 +231,21 @@ func (p *mavenScaffoldingParser) isSubproject(project *pkg.PomProject) bool {
 	return false
 }
 
-func (p *mavenScaffoldingParser) dependenciesCommand(ctx context.Context, outputFileName string) (*exec.Cmd, error) {
+func (p *mavenScaffoldingParser) genCurrentFileDep() (*pkg.Package, *artifact.Relationship, error) {
+	to, err := pkg.FileToPackage(p.relativeFilePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	from, err := pkg.FileToPackage(p.source.Metadata.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return to, toRelation(from, to), nil
+}
+
+func (p *mavenScaffoldingParser) runGetDependencies(ctx context.Context, outputFileName string) error {
 	var cmdArgs = "org.apache.maven.plugins:maven-dependency-plugin:3.3.0:tree -DoutputType=dot -DappendOutput=true --fail-fast"
 	switch p.mode {
 	case "offline":
@@ -233,50 +254,30 @@ func (p *mavenScaffoldingParser) dependenciesCommand(ctx context.Context, output
 	}
 
 	cmdArgs += " -DoutputFile=" + outputFileName
-	cmd, err := newCommand(ctx, "mvn", strings.Split(cmdArgs, " ")...)
+	stderr := &bytes.Buffer{}
+	cmd, err := command.NewCommand(ctx, p.command, p.currentDirPath, nil, stderr, strings.Split(cmdArgs, " ")...)
 	if err != nil {
-		return nil, fmt.Errorf("error creating maven transitive dependencies discovery: %w", err)
+		return fmt.Errorf("error creating maven transitive dependencies discovery: %w", err)
 	}
-	cmd.Dir = p.currentDirPath
-	return cmd, nil
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error running maven transitive dependencies discovery: %w, stderr: %s", err, stderr.String())
+	}
+	return nil
 }
 
-func (p *mavenScaffoldingParser) packageFromPomProject(mainPkgPomProject *pkg.PomProject) (*pkg.Package, *artifact.Relationship) {
-	mainPkg := toPackage(
-		mainPkgPomProject.GroupID,
-		mainPkgPomProject.ArtifactID,
-		mainPkgPomProject.Version,
-		p.currentFilepath,
-		true,
-		mainPkgPomProject,
-	)
-
-	if mainPkgPomProject.Parent == nil {
-		return mainPkg, nil
-	}
-
-	parentPkg := toPackage(
-		mainPkgPomProject.Parent.GroupID,
-		mainPkgPomProject.Parent.ArtifactID,
-		mainPkgPomProject.Parent.Version,
-		"",
-		false,
-		nil,
-	)
-
-	return mainPkg, &artifact.Relationship{
-		From: &PackageURL{Package: *parentPkg},
-		To:   &PackageURL{Package: *mainPkg},
-		Type: artifact.DevDependencyOfRelationship,
-	}
-}
-
-func (p *mavenScaffoldingParser) packageFromGavStr(gav string, mainProject *pkg.PomProject) (*pkg.Package, error) {
+func (p *mavenScaffoldingParser) gavFromStr(gav string) (string, string, string, error) {
 	// pkgStr format: group:artifact:package-type:version:scope
 	gavArr := strings.Split(gav, ":")
 	if len(gavArr) < 4 {
-		return nil, fmt.Errorf("invalid package string %s", gav)
+		return "", "", "", fmt.Errorf("invalid package string %s", gav)
 	}
 
-	return toPackage(gavArr[0], gavArr[1], gavArr[3], "", false, mainProject), nil
+	return gavArr[0], gavArr[1], gavArr[3], nil
+}
+
+func isCurrentProject(groupID, artifactID, version string, curProj *pkg.PomProject) bool {
+	return artifactID == curProj.ArtifactID &&
+		groupID == curProj.GroupID &&
+		version == curProj.Version
 }

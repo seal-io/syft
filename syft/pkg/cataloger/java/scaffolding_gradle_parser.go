@@ -2,11 +2,10 @@ package java
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,33 +13,38 @@ import (
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
+	"github.com/anchore/syft/syft/pkg/cataloger/common/command"
+	"github.com/anchore/syft/syft/source"
 )
 
 var (
 	gradleDependencyPattern = regexp.MustCompile("^([ `+\\\\|-]+)([^ `+\\\\|-].+)$")
 )
 
-func newGradleScaffoldingParser(mode, currentFilePath string) *gradleScaffoldingParser {
+func newGradleScaffoldingParser(mode, currentFilePath, relativeFilePath string, src *source.Source) *gradleScaffoldingParser {
 	return &gradleScaffoldingParser{
-		mode:            mode,
-		currentFilePath: currentFilePath,
-		currentDirPath:  filepath.Dir(currentFilePath),
+		mode:             mode,
+		currentFilePath:  currentFilePath,
+		currentDirPath:   filepath.Dir(currentFilePath),
+		relativeFilePath: relativeFilePath,
+		source:           src,
+		command:          "gradle",
 	}
 }
 
 type gradleScaffoldingParser struct {
-	mode            string
-	currentFilePath string
-	currentDirPath  string
-	mainProject     *pkg.PomProject
+	mode             string
+	currentFilePath  string
+	currentDirPath   string
+	relativeFilePath string
+	source           *source.Source
+	command          string
 }
 
 // parse generate the packages and relationships for current project
 func (p *gradleScaffoldingParser) parse(ctx context.Context) ([]*pkg.Package, []artifact.Relationship, error) {
-	log.Infof("parsing gradle dependency file %s", p.currentFilePath)
-
 	log.Infof("parsing gradle property for file %s", p.currentFilePath)
-	isSubProject, mainPkg, projects, err := p.parseProperty(ctx)
+	isSubProject, curProj, projects, err := p.parseCurrentFile(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,14 +56,13 @@ func (p *gradleScaffoldingParser) parse(ctx context.Context) ([]*pkg.Package, []
 		return nil, nil, nil
 	}
 
-	p.mainProject = mainPkg
 	if len(projects) == 0 {
 		// main project name is ""
 		projects = []string{""}
 	}
 
 	log.Infof("generating and parsing gradle dependency tree for %s", p.currentFilePath)
-	pkgs, relationships, err := p.parseAllProjects(ctx, projects)
+	pkgs, relationships, err := p.parseAllProjects(ctx, curProj, projects)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -69,22 +72,17 @@ func (p *gradleScaffoldingParser) parse(ctx context.Context) ([]*pkg.Package, []
 }
 
 // parseProperty parse the project property from command output
-func (p *gradleScaffoldingParser) parseProperty(ctx context.Context) (bool, *pkg.PomProject, []string, error) {
-	propertiesCmd, err := p.propertyCommand(ctx)
+func (p *gradleScaffoldingParser) parseCurrentFile(ctx context.Context) (bool, *pkg.PomProject, []string, error) {
+	buf, err := p.runGetProperty(ctx)
 	if err != nil {
 		return false, nil, nil, err
-	}
-
-	propertiesCmdOutput, err := propertiesCmd.CombinedOutput()
-	if err != nil {
-		return false, nil, nil, fmt.Errorf("error running gradle properties discovery: %w", err)
 	}
 
 	var (
 		buildFile                  string
 		projects                   []string
-		mainProject                = &pkg.PomProject{}
-		propertiesCmdOutputScanner = bufio.NewScanner(bytes.NewBuffer(propertiesCmdOutput))
+		curProj                    = &pkg.PomProject{}
+		propertiesCmdOutputScanner = bufio.NewScanner(buf)
 	)
 
 	for propertiesCmdOutputScanner.Scan() {
@@ -97,17 +95,17 @@ func (p *gradleScaffoldingParser) parseProperty(ctx context.Context) (bool, *pkg
 			buildFile = strings.TrimSpace(cols[1])
 		case "group":
 			groupStr := strings.TrimSpace(cols[1])
-			mainProject.GroupID = groupStr
+			curProj.GroupID = groupStr
 		case "name":
 			nameStr := strings.TrimSpace(cols[1])
-			mainProject.Name = nameStr
-			mainProject.ArtifactID = nameStr
+			curProj.Name = nameStr
+			curProj.ArtifactID = nameStr
 		case "version":
 			versionStr := strings.TrimSpace(cols[1])
 			if versionStr == "unspecified" {
 				versionStr = ""
 			}
-			mainProject.Version = versionStr
+			curProj.Version = versionStr
 		case "subprojects":
 			subprojectsStr := strings.TrimSpace(cols[1])
 			if subprojectsStr == "[]" {
@@ -133,75 +131,64 @@ func (p *gradleScaffoldingParser) parseProperty(ctx context.Context) (bool, *pkg
 		return true, nil, nil, nil
 	}
 
-	return false, mainProject, projects, nil
+	return false, curProj, projects, nil
 }
 
 // parseAllProjects get packages and relationships for all projects
-func (p *gradleScaffoldingParser) parseAllProjects(ctx context.Context, projects []string) (allPkgs []*pkg.Package, relations []artifact.Relationship, err error) {
-	mainPkg := toPackage(p.mainProject.GroupID, p.mainProject.ArtifactID, p.mainProject.Version, p.currentFilePath, true, p.mainProject)
-	allPkgs = append(allPkgs, mainPkg)
+func (p *gradleScaffoldingParser) parseAllProjects(ctx context.Context, mainProj *pkg.PomProject, projects []string) (pkgs []*pkg.Package, relations []artifact.Relationship, err error) {
+	mainPkg, mainRelation, err := p.genCurrentFileDep()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pkgs = []*pkg.Package{mainPkg}
+	relations = []artifact.Relationship{*mainRelation}
 	for _, v := range projects {
-		subProject, projectPkgs, projectRelations, err := p.parseSingleProject(ctx, v)
+		subProject, projectPkgs, projectRelations, err := p.parseSingleProject(ctx, mainProj, v)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		allPkgs = append(allPkgs, projectPkgs...)
+		pkgs = append(pkgs, projectPkgs...)
 		relations = append(relations, projectRelations...)
 
 		// handle relation main project -> subproject
 		if v != "" {
-			fromID := &PackageURL{Package: *mainPkg}
-			toID := &PackageURL{Package: *subProject}
-			relations = append(relations, artifact.Relationship{
-				From: fromID,
-				To:   toID,
-				Type: artifact.DependencyOfRelationship,
-			})
+			relations = append(relations, *toRelation(mainPkg, subProject))
 		}
 	}
-	return allPkgs, relations, nil
+	return pkgs, relations, nil
 }
 
 // parseSingleProject get packages and relationships for single project
-func (p *gradleScaffoldingParser) parseSingleProject(ctx context.Context, project string) (*pkg.Package, []*pkg.Package, []artifact.Relationship, error) {
-	cmd, err := p.dependenciesCommand(ctx, project)
+func (p *gradleScaffoldingParser) parseSingleProject(
+	ctx context.Context, mainProj *pkg.PomProject, project string,
+) (*pkg.Package, []*pkg.Package, []artifact.Relationship, error) {
+	buf, err := p.runGetDependencies(ctx, project)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	output, err := cmd.CombinedOutput()
+	scanner := bufio.NewScanner(buf)
+	directlyDeps, pkgs, relations, err := parseGraph(scanner, p.isValidDependencyLine, p.parseDependencyLineFn(mainProj))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error running gradle transitive dependencies discovery: %w", err)
-	}
-
-	scanner := bufio.NewScanner(bytes.NewBuffer(output))
-	directlyDeps, allPkgs, relations, err := parseGraph(scanner, p.isValidDependencyLine, p.parseDependencyLine)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error parse graph from command %s, %w", cmd.String(), err)
+		return nil, nil, nil, fmt.Errorf("failed to parse dependency graph %w", err)
 	}
 
 	// handle subprojects
 	var subProjectPkg *pkg.Package
 	if project != "" {
 		name := strings.TrimPrefix(project, ":")
-		subProjectPkg = toPackage(p.mainProject.GroupID, name, p.mainProject.Version, "", false, p.mainProject)
-		allPkgs = append(allPkgs, subProjectPkg)
-
-		fromID := &PackageURL{Package: *subProjectPkg}
+		subProjectPkg = toPackage(mainProj.GroupID, name, mainProj.Version, mainProj)
+		pkgs = append(pkgs, subProjectPkg)
 		for _, v := range directlyDeps {
-			var toID = &PackageURL{Package: *v}
-			relations = append(relations, artifact.Relationship{
-				From: fromID,
-				To:   toID,
-				Type: artifact.DependencyOfRelationship,
-			})
+			relations = append(relations, *toRelation(subProjectPkg, v))
 		}
 	}
-	return subProjectPkg, allPkgs, relations, nil
+	return subProjectPkg, pkgs, relations, nil
 }
 
-func (p *gradleScaffoldingParser) dependenciesCommand(ctx context.Context, project string) (*exec.Cmd, error) {
+func (p *gradleScaffoldingParser) runGetDependencies(ctx context.Context, project string) (io.Reader, error) {
 	// NB(thxCode): choose `testRuntimeClasspath` as the only configuration,
 	// ref to https://tomgregory.com/gradle-implementation-vs-compile-dependencies/.
 	dependenciesCmdArgs := project + ":dependencies --quiet --no-daemon --console=plain --configuration=testRuntimeClasspath"
@@ -211,15 +198,10 @@ func (p *gradleScaffoldingParser) dependenciesCommand(ctx context.Context, proje
 	case "online", "":
 	}
 
-	dependenciesCmd, err := newCommand(ctx, "gradle", strings.Split(dependenciesCmdArgs, " ")...)
-	if err != nil {
-		return nil, fmt.Errorf("error creating gradle transitive dependencies discovery: %w", err)
-	}
-	dependenciesCmd.Dir = p.currentDirPath
-	return dependenciesCmd, nil
+	return command.RunCommand(ctx, p.command, p.currentDirPath, strings.Split(dependenciesCmdArgs, " ")...)
 }
 
-func (p *gradleScaffoldingParser) propertyCommand(ctx context.Context) (*exec.Cmd, error) {
+func (p *gradleScaffoldingParser) runGetProperty(ctx context.Context) (io.Reader, error) {
 	// :properties show properties for root project;
 	// properties show properties for current dir, if we run it under subproject A dir, we can only get subprojects for A,
 	// we can get all subprojects while scan root project, so we use :properties here
@@ -230,20 +212,34 @@ func (p *gradleScaffoldingParser) propertyCommand(ctx context.Context) (*exec.Cm
 	case "online", "":
 	}
 
-	propertiesCmd, err := newCommand(ctx, "gradle", strings.Split(propertiesCmdArgs, " ")...)
+	return command.RunCommand(ctx, p.command, p.currentDirPath, strings.Split(propertiesCmdArgs, " ")...)
+}
+
+func (p *gradleScaffoldingParser) genCurrentFileDep() (*pkg.Package, *artifact.Relationship, error) {
+	from, err := pkg.FileToPackage(p.source.Metadata.Path)
 	if err != nil {
-		return nil, fmt.Errorf("error creating gradle properties discovery: %w", err)
+		return nil, nil, err
 	}
-	propertiesCmd.Dir = p.currentDirPath
-	return propertiesCmd, nil
+
+	to, err := pkg.FileToPackage(p.relativeFilePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return to, toRelation(from, to), nil
 }
 
 func (p *gradleScaffoldingParser) isValidDependencyLine(line string) bool {
 	return gradleDependencyPattern.MatchString(line)
 }
 
+func (p *gradleScaffoldingParser) parseDependencyLineFn(mainProj *pkg.PomProject) parseLine {
+	return func(line string) (int, *pkg.Package, error) {
+		return p.parseDependencyLine(mainProj, line)
+	}
+}
+
 // parseDependencyLine parse get package from dependency command output
-func (p *gradleScaffoldingParser) parseDependencyLine(line string) (int, *pkg.Package, error) {
+func (p *gradleScaffoldingParser) parseDependencyLine(mainProj *pkg.PomProject, line string) (int, *pkg.Package, error) {
 	matches := gradleDependencyPattern.FindStringSubmatch(line)
 	prefixLen := len(matches[1])
 	if prefixLen%5 != 0 {
@@ -261,7 +257,7 @@ func (p *gradleScaffoldingParser) parseDependencyLine(line string) (int, *pkg.Pa
 
 		// construct
 		name := strings.TrimPrefix(strings.TrimPrefix(accurate, "project "), ":")
-		childPkg = toPackage(p.mainProject.GroupID, name, p.mainProject.Version, "", false, p.mainProject)
+		childPkg = toPackage(mainProj.GroupID, name, mainProj.Version, mainProj)
 	} else {
 		// package example:
 		//  1. group:project:requestedVersion
@@ -288,7 +284,7 @@ func (p *gradleScaffoldingParser) parseDependencyLine(line string) (int, *pkg.Pa
 			version = sections[1]
 		}
 
-		childPkg = toPackage(gav[0], gav[1], version, "", false, p.mainProject)
+		childPkg = toPackage(gav[0], gav[1], version, mainProj)
 	}
 	return prefixLen / 5, childPkg, nil
 }

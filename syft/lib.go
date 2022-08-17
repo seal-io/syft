@@ -53,13 +53,13 @@ func CatalogPackages(src *source.Source, cfg cataloger.Config) (*pkg.Catalog, []
 	switch src.Metadata.Scheme {
 	case source.ImageScheme:
 		log.Info("cataloging image")
-		catalogers = cataloger.ImageCatalogers(cfg)
+		catalogers = cataloger.ImageCatalogers(src, cfg)
 	case source.FileScheme:
 		log.Info("cataloging file")
-		catalogers = cataloger.AllCatalogers(cfg)
+		catalogers = cataloger.AllCatalogers(src, cfg)
 	case source.DirectoryScheme:
 		log.Info("cataloging directory")
-		catalogers = cataloger.DirectoryCatalogers(cfg)
+		catalogers = cataloger.DirectoryCatalogers(src, cfg)
 	default:
 		return nil, nil, nil, fmt.Errorf("unable to determine cataloger set from scheme=%+v", src.Metadata.Scheme)
 	}

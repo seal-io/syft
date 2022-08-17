@@ -5,14 +5,16 @@ package java
 
 import (
 	"github.com/anchore/syft/syft/pkg/cataloger/common"
+	"github.com/anchore/syft/syft/source"
 )
 
 // NewJavaCataloger returns a new Java archive cataloger object.
-func NewJavaCataloger(cfg Config) *common.GenericCataloger {
+func NewJavaCataloger(src *source.Source, cfg Config) *common.GenericCataloger {
 	// java build tool matching
 	if cfg.SearchByBuildTools {
 		var opts = scaffoldingParseOptions{
-			mode: cfg.SearchByBuildToolsWithMode,
+			mode:   cfg.SearchByBuildToolsWithMode,
+			source: src,
 		}
 		rawGlobParsers := map[string]common.RawParserFn{
 			"**/pom.xml":      javaScaffoldingParserFn(mavenScaffolding, opts),

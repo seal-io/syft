@@ -27,8 +27,13 @@ func encodeComponent(p pkg.Package) cyclonedx.Component {
 		properties = &props
 	}
 
+	comType := cyclonedx.ComponentTypeLibrary
+	if p.Type == pkg.FilePkg {
+		comType = cyclonedx.ComponentTypeFile
+	}
+
 	return cyclonedx.Component{
-		Type:               cyclonedx.ComponentTypeLibrary,
+		Type:               comType,
 		Name:               p.Name,
 		Group:              encodeGroup(p),
 		Version:            p.Version,
@@ -40,7 +45,7 @@ func encodeComponent(p pkg.Package) cyclonedx.Component {
 		Description:        encodeDescription(p),
 		ExternalReferences: encodeExternalReferences(p),
 		Properties:         properties,
-		BOMRef:             deriveBomRef(p),
+		BOMRef:             string(p.ID()),
 	}
 }
 
