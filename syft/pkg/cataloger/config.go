@@ -6,8 +6,9 @@ import (
 )
 
 type Config struct {
-	Search     SearchConfig
-	Catalogers []string
+	Search                 SearchConfig
+	Catalogers             []string
+	ExternalSourcesEnabled bool
 }
 
 func DefaultConfig() Config {
