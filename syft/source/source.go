@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -351,7 +350,7 @@ func (s *Source) FileResolver(scope Scope) (FileResolver, error) {
 }
 
 func unarchiveToTmp(path string, unarchiver archiver.Unarchiver) (string, func(), error) {
-	tempDir, err := ioutil.TempDir("", "syft-archive-contents-")
+	tempDir, err := os.MkdirTemp("", "syft-archive-contents-")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("unable to create tempdir for archive processing: %w", err)
 	}

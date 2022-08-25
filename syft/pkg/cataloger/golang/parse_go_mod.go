@@ -3,7 +3,6 @@ package golang
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sort"
 
 	"github.com/anchore/syft/internal/log"
@@ -17,7 +16,7 @@ func parseGoMod(path string, reader io.Reader) ([]*pkg.Package, []artifact.Relat
 	log.Infof("parsing golang dependency file %s", path)
 	packages := make(map[string]*pkg.Package)
 
-	contents, err := ioutil.ReadAll(reader)
+	contents, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read go module: %w", err)
 	}
