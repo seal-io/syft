@@ -85,6 +85,8 @@ func decodeComponent(c *cyclonedx.Component) *pkg.Package {
 
 	common.DecodeInto(p, values, "syft:package", CycloneDXFields)
 
+	p.MetadataType = pkg.CleanMetadataType(p.MetadataType)
+
 	p.Metadata = decodePackageMetadata(values, c, p.MetadataType)
 
 	if p.Type == "" {
