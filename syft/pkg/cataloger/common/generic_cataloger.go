@@ -30,16 +30,18 @@ func NewGenericCataloger(pathParsers map[string]ParserFn, globParsers map[string
 		if rawPathParsers == nil {
 			rawPathParsers = make(map[string]RawParserFn, len(pathParsers))
 		}
+		parse := pathParsers[p]
 		rawPathParsers[p] = func(location source.Location, reader io.Reader) ([]*pkg.Package, []artifact.Relationship, error) {
-			return pathParsers[p](location.RealPath, reader)
+			return parse(location.RealPath, reader)
 		}
 	}
 	for p := range globParsers {
 		if rawGlobParsers == nil {
 			rawGlobParsers = make(map[string]RawParserFn, len(globParsers))
 		}
+		parse := globParsers[p]
 		rawGlobParsers[p] = func(location source.Location, reader io.Reader) ([]*pkg.Package, []artifact.Relationship, error) {
-			return globParsers[p](location.RealPath, reader)
+			return parse(location.RealPath, reader)
 		}
 	}
 	return NewGenericCatalogerWithPreciseLocation(rawPathParsers, rawGlobParsers, upstreamCataloger)
