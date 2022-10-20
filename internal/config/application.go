@@ -60,6 +60,8 @@ type Application struct {
 func (cfg Application) ToCatalogerConfig() cataloger.Config {
 	return cataloger.Config{
 		Search: cataloger.SearchConfig{
+			ByBuildTools:             cfg.Package.SearchByBuildTools.Enabled,
+			ByBuildToolsWithMode:     cfg.Package.SearchByBuildTools.Mode,
 			IncludeIndexedArchives:   cfg.Package.SearchIndexedArchives,
 			IncludeUnindexedArchives: cfg.Package.SearchUnindexedArchives,
 			Scope:                    cfg.Package.Cataloger.ScopeOpt,

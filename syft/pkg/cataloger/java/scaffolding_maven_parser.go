@@ -89,7 +89,7 @@ func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package
 
 // parseCurrentFile get project gav from current file, and generate relation between source and current file
 func (p *mavenScaffoldingParser) parseCurrentFile() (bool, *pkg.PomProject, error) {
-	proj, err := parsePomXML(p.relativeFilePath, p.reader)
+	proj, err := parsePomXMLProject(p.relativeFilePath, p.reader)
 	if err != nil {
 		return false, nil, fmt.Errorf("error parsing pom xml: %w", err)
 	}
