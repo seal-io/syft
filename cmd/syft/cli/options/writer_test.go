@@ -22,13 +22,13 @@ func TestIsSupportedFormat(t *testing.T) {
 		{
 			outputs: []string{"unknown"},
 			wantErr: func(t assert.TestingT, err error, bla ...interface{}) bool {
-				return assert.ErrorContains(t, err, "bad output format: 'unknown'")
+				return assert.ErrorContains(t, err, `unsupported output format "unknown", supported formats are: [`)
 			},
 		},
 	}
 
 	for _, tt := range tests {
-		_, err := MakeWriter(tt.outputs, "")
+		_, err := MakeWriter(tt.outputs, "", "")
 		tt.wantErr(t, err)
 	}
 }

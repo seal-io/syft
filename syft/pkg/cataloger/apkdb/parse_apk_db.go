@@ -8,14 +8,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anchore/syft/syft/artifact"
-
-	"github.com/anchore/syft/syft/file"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/anchore/syft/internal/log"
+	"github.com/anchore/syft/syft/artifact"
+	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/pkg/cataloger/common"
-	"github.com/mitchellh/mapstructure"
 )
 
 // integrity check
@@ -74,8 +73,9 @@ func parseApkDB(_ string, reader io.Reader) ([]*pkg.Package, []artifact.Relation
 	return packages, nil, nil
 }
 
-// nolint:funlen
 // parseApkDBEntry reads and parses a single pkg.ApkMetadata element from the stream, returning nil if their are no more entries.
+//
+//nolint:funlen
 func parseApkDBEntry(reader io.Reader) (*pkg.ApkMetadata, error) {
 	var entry pkg.ApkMetadata
 	pkgFields := make(map[string]interface{})
@@ -134,10 +134,7 @@ func parseApkDBEntry(reader io.Reader) (*pkg.ApkMetadata, error) {
 				log.Warnf("checksum field with no parent record: %q", value)
 				continue
 			}
-			fileRecord.Digest = &file.Digest{
-				Algorithm: "sha1",
-				Value:     value,
-			}
+			fileRecord.Digest = processChecksum(value)
 		case "I", "S":
 			// coerce to integer
 			iVal, err := strconv.Atoi(value)
@@ -160,4 +157,24 @@ func parseApkDBEntry(reader io.Reader) (*pkg.ApkMetadata, error) {
 	entry.Files = files
 
 	return &entry, nil
+}
+
+func processChecksum(value string) *file.Digest {
+	// from: https://wiki.alpinelinux.org/wiki/Apk_spec
+	// The package checksum field is the SHA1 hash of the second gzip stream (control stream) in the package. The
+	// binary hash digest is base64 encoded. This is prefixed with Q1 to differentiate it from the MD5 hashes
+	// used in older index formats. It is not possible to compute this checksum with standard command line tools
+	// but the apk-tools can compute it in their index operation.
+
+	// based on https://github.com/alpinelinux/apk-tools/blob/dd1908f2fc20b4cfe2c15c55fafaa5fadfb599dc/src/blob.c#L379-L393
+	// it seems that the old md5 checksum value was only the hex representation (not base64)
+	algorithm := "md5"
+	if strings.HasPrefix(value, "Q1") {
+		algorithm = "'Q1'+base64(sha1)"
+	}
+
+	return &file.Digest{
+		Algorithm: algorithm,
+		Value:     value,
+	}
 }

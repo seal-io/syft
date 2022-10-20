@@ -13,13 +13,12 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/anchore/stereoscope/pkg/imagetest"
-
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/anchore/stereoscope/pkg/image"
+	"github.com/anchore/stereoscope/pkg/imagetest"
+	"github.com/anchore/syft/syft/artifact"
 )
 
 func TestParseInput(t *testing.T) {
@@ -65,6 +64,72 @@ func TestNewFromImageFails(t *testing.T) {
 			t.Errorf("expected an error condition but none was given")
 		}
 	})
+}
+
+func TestSetID(t *testing.T) {
+	layer := image.NewLayer(nil)
+	layer.Metadata = image.LayerMetadata{
+		Digest: "sha256:6f4fb385d4e698647bf2a450749dfbb7bc2831ec9a730ef4046c78c08d468e89",
+	}
+	img := image.Image{
+		Layers: []*image.Layer{layer},
+	}
+
+	tests := []struct {
+		name     string
+		input    *Source
+		expected artifact.ID
+	}{
+		{
+			name: "source.SetID sets the ID for FileScheme",
+			input: &Source{
+				Metadata: Metadata{
+					Scheme: FileScheme,
+					Path:   "test-fixtures/image-simple/file-1.txt",
+				},
+			},
+			expected: artifact.ID("55096713247489add592ce977637be868497132b36d1e294a3831925ec64319a"),
+		},
+		{
+			name: "source.SetID sets the ID for ImageScheme",
+			input: &Source{
+				Image: &img,
+				Metadata: Metadata{
+					Scheme: ImageScheme,
+				},
+			},
+			expected: artifact.ID("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+		},
+		{
+			name: "source.SetID sets the ID for DirectoryScheme",
+			input: &Source{
+				Image: &img,
+				Metadata: Metadata{
+					Scheme: DirectoryScheme,
+					Path:   "test-fixtures/image-simple",
+				},
+			},
+			expected: artifact.ID("91db61e5e0ae097ef764796ce85e442a93f2a03e5313d4c7307e9b413f62e8c4"),
+		},
+		{
+			name: "source.SetID sets the ID for UnknownScheme",
+			input: &Source{
+				Image: &img,
+				Metadata: Metadata{
+					Scheme: UnknownScheme,
+					Path:   "test-fixtures/image-simple",
+				},
+			},
+			expected: artifact.ID("26e8f4daad203793"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.input.SetID()
+			assert.Equal(t, test.expected, test.input.ID())
+		})
+	}
 }
 
 func TestNewFromImage(t *testing.T) {
@@ -576,6 +641,75 @@ func TestImageExclusions(t *testing.T) {
 			}
 			if len(contents) != test.expected {
 				t.Errorf("wrong number of files after exclusions (%s): %d != %d", test.glob, len(contents), test.expected)
+			}
+		})
+	}
+}
+
+func Test_crossPlatformExclusions(t *testing.T) {
+	testCases := []struct {
+		desc    string
+		root    string
+		path    string
+		exclude string
+		match   bool
+	}{
+		{
+			desc:    "linux doublestar",
+			root:    "/usr",
+			path:    "/usr/var/lib/etc.txt",
+			exclude: "**/*.txt",
+			match:   true,
+		},
+		{
+			desc:    "linux relative",
+			root:    "/usr/var/lib",
+			path:    "/usr/var/lib/etc.txt",
+			exclude: "./*.txt",
+			match:   true,
+		},
+		{
+			desc:    "linux one level",
+			root:    "/usr",
+			path:    "/usr/var/lib/etc.txt",
+			exclude: "*/*.txt",
+			match:   false,
+		},
+		// NOTE: since these tests will run in linux and macOS, the windows paths will be
+		// considered relative if they do not start with a forward slash and paths with backslashes
+		// won't be modified by the filepath.ToSlash call, so these are emulating the result of
+		// filepath.ToSlash usage
+		{
+			desc:    "windows doublestar",
+			root:    "/C:/User/stuff",
+			path:    "/C:/User/stuff/thing.txt",
+			exclude: "**/*.txt",
+			match:   true,
+		},
+		{
+			desc:    "windows relative",
+			root:    "/C:/User/stuff",
+			path:    "/C:/User/stuff/thing.txt",
+			exclude: "./*.txt",
+			match:   true,
+		},
+		{
+			desc:    "windows one level",
+			root:    "/C:/User/stuff",
+			path:    "/C:/User/stuff/thing.txt",
+			exclude: "*/*.txt",
+			match:   false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.desc, func(t *testing.T) {
+			fns, err := getDirectoryExclusionFunctions(test.root, []string{test.exclude})
+			require.NoError(t, err)
+
+			for _, f := range fns {
+				result := f(test.path, nil)
+				require.Equal(t, test.match, result)
 			}
 		})
 	}

@@ -8,17 +8,18 @@ import (
 	"sync"
 	"time"
 
-	stereoEventParsers "github.com/anchore/stereoscope/pkg/event/parsers"
-	"github.com/anchore/stereoscope/pkg/image/docker"
-	"github.com/anchore/syft/internal"
-	"github.com/anchore/syft/internal/ui/components"
-	syftEventParsers "github.com/anchore/syft/syft/event/parsers"
 	"github.com/dustin/go-humanize"
 	"github.com/gookit/color"
 	"github.com/wagoodman/go-partybus"
 	"github.com/wagoodman/go-progress"
 	"github.com/wagoodman/go-progress/format"
 	"github.com/wagoodman/jotframe/pkg/frame"
+
+	stereoEventParsers "github.com/anchore/stereoscope/pkg/event/parsers"
+	"github.com/anchore/stereoscope/pkg/image/docker"
+	"github.com/anchore/syft/internal"
+	"github.com/anchore/syft/internal/ui/components"
+	syftEventParsers "github.com/anchore/syft/syft/event/parsers"
 )
 
 const maxBarWidth = 50
@@ -74,8 +75,9 @@ func formatDockerPullPhase(phase docker.PullPhase, inputStr string) string {
 	}
 }
 
-// nolint:funlen
 // formatDockerImagePullStatus writes the docker image pull status summarized into a single line for the given state.
+//
+//nolint:funlen
 func formatDockerImagePullStatus(pullStatus *docker.PullStatus, spinner *components.Spinner, line *frame.Line) {
 	var size, current uint64
 
@@ -397,8 +399,9 @@ func SecretsCatalogerStartedHandler(ctx context.Context, fr *frame.Frame, event 
 	return err
 }
 
-//nolint:dupl
 // FileMetadataCatalogerStartedHandler shows the intermittent secrets searching progress.
+//
+//nolint:dupl
 func FileMetadataCatalogerStartedHandler(ctx context.Context, fr *frame.Frame, event partybus.Event, wg *sync.WaitGroup) error {
 	prog, err := syftEventParsers.ParseFileMetadataCatalogingStarted(event)
 	if err != nil {
@@ -483,7 +486,8 @@ func FileIndexingStartedHandler(ctx context.Context, fr *frame.Frame, event part
 }
 
 // FileMetadataCatalogerStartedHandler shows the intermittent secrets searching progress.
-// nolint:dupl
+//
+//nolint:dupl
 func FileDigestsCatalogerStartedHandler(ctx context.Context, fr *frame.Frame, event partybus.Event, wg *sync.WaitGroup) error {
 	prog, err := syftEventParsers.ParseFileDigestsCatalogingStarted(event)
 	if err != nil {

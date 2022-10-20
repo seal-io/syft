@@ -7,28 +7,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wagoodman/go-progress"
-
-	"github.com/anchore/stereoscope"
-	"github.com/anchore/stereoscope/pkg/image"
-	"github.com/anchore/syft/cmd/syft/cli/eventloop"
-	"github.com/anchore/syft/cmd/syft/cli/options"
-	"github.com/anchore/syft/cmd/syft/cli/packages"
-	"github.com/anchore/syft/internal/bus"
-	"github.com/anchore/syft/internal/config"
-	"github.com/anchore/syft/internal/formats/cyclonedxjson"
-	"github.com/anchore/syft/internal/formats/spdx22json"
-	"github.com/anchore/syft/internal/formats/syftjson"
-	"github.com/anchore/syft/internal/log"
-	"github.com/anchore/syft/internal/ui"
-	"github.com/anchore/syft/syft"
-	"github.com/anchore/syft/syft/event"
-	"github.com/anchore/syft/syft/sbom"
-	"github.com/anchore/syft/syft/source"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/in-toto/in-toto-golang/in_toto"
-	"github.com/pkg/errors"
+	sigopts "github.com/sigstore/cosign/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/cmd/cosign/cli/rekor"
 	"github.com/sigstore/cosign/cmd/cosign/cli/sign"
 	"github.com/sigstore/cosign/pkg/cosign"
@@ -42,9 +24,26 @@ import (
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/sigstore/pkg/signature/dsse"
-	"github.com/wagoodman/go-partybus"
-
 	signatureoptions "github.com/sigstore/sigstore/pkg/signature/options"
+	"github.com/wagoodman/go-partybus"
+	"github.com/wagoodman/go-progress"
+
+	"github.com/anchore/stereoscope"
+	"github.com/anchore/stereoscope/pkg/image"
+	"github.com/anchore/syft/cmd/syft/cli/eventloop"
+	"github.com/anchore/syft/cmd/syft/cli/options"
+	"github.com/anchore/syft/cmd/syft/cli/packages"
+	"github.com/anchore/syft/internal/bus"
+	"github.com/anchore/syft/internal/config"
+	"github.com/anchore/syft/internal/log"
+	"github.com/anchore/syft/internal/ui"
+	"github.com/anchore/syft/syft"
+	"github.com/anchore/syft/syft/event"
+	"github.com/anchore/syft/syft/formats/cyclonedxjson"
+	"github.com/anchore/syft/syft/formats/spdx22json"
+	"github.com/anchore/syft/syft/formats/syftjson"
+	"github.com/anchore/syft/syft/sbom"
+	"github.com/anchore/syft/syft/source"
 )
 
 var (
@@ -57,7 +56,7 @@ var (
 	intotoJSONDsseType = `application/vnd.in-toto+json`
 )
 
-func Run(ctx context.Context, app *config.Application, ko sign.KeyOpts, args []string) error {
+func Run(ctx context.Context, app *config.Application, ko sigopts.KeyOpts, args []string) error {
 	// We cannot generate an attestation for more than one output
 	if len(app.Outputs) > 1 {
 		return fmt.Errorf("unable to generate attestation for more than one output")
@@ -70,7 +69,14 @@ func Run(ctx context.Context, app *config.Application, ko sign.KeyOpts, args []s
 		return err
 	}
 
-	format := syft.FormatByName(app.Outputs[0])
+	output := parseAttestationOutput(app.Outputs)
+
+	format := syft.FormatByName(output)
+
+	// user typo or unknown outputs provided
+	if format == nil {
+		format = syft.FormatByID(syftjson.ID) // default attestation format
+	}
 	predicateType := formatPredicateType(format)
 	if predicateType == "" {
 		return fmt.Errorf(
@@ -109,6 +115,14 @@ func Run(ctx context.Context, app *config.Application, ko sign.KeyOpts, args []s
 	)
 }
 
+func parseAttestationOutput(outputs []string) (format string) {
+	if len(outputs) == 0 {
+		outputs = append(outputs, string(syftjson.ID))
+	}
+
+	return outputs[0]
+}
+
 func parseImageSource(userInput string, app *config.Application) (s *source.Input, err error) {
 	si, err := source.ParseInput(userInput, app.Platform, false)
 	if err != nil {
@@ -129,6 +143,7 @@ func parseImageSource(userInput string, app *config.Application) (s *source.Inpu
 	switch si.ImageSource {
 	case image.UnknownSource, image.OciRegistrySource:
 		si.ImageSource = image.OciRegistrySource
+	case image.SingularitySource:
 	default:
 		return nil, fmt.Errorf("attest command can only be used with image sources fetch directly from the registry, but discovered an image source of %q when given %q", si.ImageSource, userInput)
 	}
@@ -162,36 +177,57 @@ func execWorker(app *config.Application, sourceInput source.Input, format sbom.F
 			return
 		}
 
-		err = generateAttestation(app, sbomBytes, src, sv, predicateType)
+		signedPayload, err := generateAttestation(sourceInput, sbomBytes, src, sv, predicateType)
 		if err != nil {
 			errs <- err
 			return
 		}
+
+		err = publishAttestation(app, signedPayload, src, sv)
+		if err != nil {
+			errs <- err
+			return
+		}
+
+		bus.Publish(partybus.Event{
+			Type: event.Exit,
+			Value: func() error {
+				return nil
+			},
+		})
 	}()
 	return errs
 }
 
-func generateAttestation(app *config.Application, predicate []byte, src *source.Source, sv *sign.SignerVerifier, predicateType string) error {
-	switch len(src.Image.Metadata.RepoDigests) {
-	case 0:
-		return fmt.Errorf("cannot generate attestation since no repo digests were found; make sure you're passing an OCI registry source for the attest command")
-	case 1:
-	default:
-		return fmt.Errorf("cannot generate attestation since multiple repo digests were found for the image: %+v", src.Image.Metadata.RepoDigests)
-	}
+func generateAttestation(si source.Input, predicate []byte, src *source.Source, sv *sign.SignerVerifier, predicateType string) ([]byte, error) {
+	var h v1.Hash
 
-	wrapped := dsse.WrapSigner(sv, intotoJSONDsseType)
-	ref, err := name.ParseReference(src.Metadata.ImageMetadata.UserInput)
-	if err != nil {
-		return err
-	}
+	switch si.ImageSource {
+	case image.OciRegistrySource:
+		switch len(src.Image.Metadata.RepoDigests) {
+		case 0:
+			return nil, fmt.Errorf("cannot generate attestation since no repo digests were found; make sure you're passing an OCI registry source for the attest command")
+		case 1:
+			d, err := name.NewDigest(src.Image.Metadata.RepoDigests[0])
+			if err != nil {
+				return nil, err
+			}
 
-	digest, err := ociremote.ResolveDigest(ref)
-	if err != nil {
-		return err
-	}
+			h, err = v1.NewHash(d.Identifier())
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("cannot generate attestation since multiple repo digests were found for the image: %+v", src.Image.Metadata.RepoDigests)
+		}
 
-	h, _ := v1.NewHash(digest.Identifier())
+	case image.SingularitySource:
+		var err error
+		h, err = v1.NewHash(src.Image.Metadata.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	sh, err := attestation.GenerateStatement(attestation.GenerateOpts{
 		Predicate: bytes.NewBuffer(predicate),
@@ -199,33 +235,44 @@ func generateAttestation(app *config.Application, predicate []byte, src *source.
 		Digest:    h.Hex,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	payload, err := json.Marshal(sh)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	signedPayload, err := wrapped.SignMessage(bytes.NewReader(payload), signatureoptions.WithContext(context.Background()))
-	if err != nil {
-		return errors.Wrap(err, "unable to sign SBOM")
-	}
+	wrapped := dsse.WrapSigner(sv, intotoJSONDsseType)
+	return wrapped.SignMessage(bytes.NewReader(payload), signatureoptions.WithContext(context.Background()))
+}
 
+// publishAttestation publishes signedPayload to the location specified by the user.
+func publishAttestation(app *config.Application, signedPayload []byte, src *source.Source, sv *sign.SignerVerifier) error {
+	switch {
 	// We want to give the option to not upload the generated attestation
 	// if passed or if the user is using local PKI
-	if app.Attest.NoUpload || app.Attest.KeyRef != "" {
-		bus.Publish(partybus.Event{
-			Type: event.Exit,
-			Value: func() error {
-				_, err := os.Stdout.Write(signedPayload)
-				return err
-			},
-		})
-		return nil
-	}
+	case app.Attest.NoUpload || app.Attest.KeyRef != "":
+		if app.File != "" {
+			return os.WriteFile(app.File, signedPayload, 0600)
+		}
 
-	return uploadAttestation(app, signedPayload, digest, sv)
+		_, err := os.Stdout.Write(signedPayload)
+		return err
+
+	default:
+		ref, err := name.ParseReference(src.Metadata.ImageMetadata.UserInput)
+		if err != nil {
+			return err
+		}
+
+		digest, err := ociremote.ResolveDigest(ref)
+		if err != nil {
+			return err
+		}
+
+		return uploadAttestation(app, signedPayload, digest, sv)
+	}
 }
 
 func trackUploadAttestation() (*progress.Stage, *progress.Manual) {
@@ -304,12 +351,6 @@ func uploadAttestation(app *config.Application, signedPayload []byte, digest nam
 
 	prog.SetCompleted()
 
-	bus.Publish(partybus.Event{
-		Type: event.Exit,
-		Value: func() error {
-			return nil
-		},
-	})
 	return nil
 }
 
@@ -318,8 +359,7 @@ func formatPredicateType(format sbom.Format) string {
 	case spdx22json.ID:
 		return in_toto.PredicateSPDX
 	case cyclonedxjson.ID:
-		// Tentative see https://github.com/in-toto/attestation/issues/82
-		return "https://cyclonedx.org/bom"
+		return in_toto.PredicateCycloneDX
 	case syftjson.ID:
 		return "https://syft.dev/bom"
 	default:

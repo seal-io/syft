@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"sort"
 	"strings"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/adrg/xdg"
-	"github.com/anchore/syft/internal"
-	"github.com/anchore/syft/internal/log"
 	"github.com/mitchellh/go-homedir"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v2"
+
+	"github.com/anchore/syft/internal"
+	"github.com/anchore/syft/internal/log"
+	"github.com/anchore/syft/syft/pkg/cataloger"
 )
 
 var (
@@ -38,11 +40,12 @@ type Application struct {
 	// -q, indicates to not show any status output to stderr (ETUI or logging UI)
 	Quiet              bool               `yaml:"quiet" json:"quiet" mapstructure:"quiet"`
 	Outputs            []string           `yaml:"output" json:"output" mapstructure:"output"`                                           // -o, the format to use for output
+	OutputTemplatePath string             `yaml:"output-template-path" json:"output-template-path" mapstructure:"output-template-path"` // -t template file to use for output
 	File               string             `yaml:"file" json:"file" mapstructure:"file"`                                                 // --file, the file to write report output to
 	CheckForAppUpdate  bool               `yaml:"check-for-app-update" json:"check-for-app-update" mapstructure:"check-for-app-update"` // whether to check for an application update on start up or not
-	Anchore            anchore            `yaml:"anchore" json:"anchore" mapstructure:"anchore"`                                        // options for interacting with Anchore Engine/Enterprise
 	Dev                development        `yaml:"dev" json:"dev" mapstructure:"dev"`
 	Log                logging            `yaml:"log" json:"log" mapstructure:"log"` // all logging-related options
+	Catalogers         []string           `yaml:"catalogers" json:"catalogers" mapstructure:"catalogers"`
 	Package            pkg                `yaml:"package" json:"package" mapstructure:"package"`
 	FileMetadata       FileMetadata       `yaml:"file-metadata" json:"file-metadata" mapstructure:"file-metadata"`
 	FileClassification fileClassification `yaml:"file-classification" json:"file-classification" mapstructure:"file-classification"`
@@ -52,6 +55,19 @@ type Application struct {
 	Exclusions         []string           `yaml:"exclude" json:"exclude" mapstructure:"exclude"`
 	Attest             attest             `yaml:"attest" json:"attest" mapstructure:"attest"`
 	Platform           string             `yaml:"platform" json:"platform" mapstructure:"platform"`
+}
+
+func (cfg Application) ToCatalogerConfig() cataloger.Config {
+	return cataloger.Config{
+		Search: cataloger.SearchConfig{
+			ByBuildTools:             cfg.Package.SearchByBuildTools.Enabled,
+			ByBuildToolsWithMode:     cfg.Package.SearchByBuildTools.Mode,
+			IncludeIndexedArchives:   cfg.Package.SearchIndexedArchives,
+			IncludeUnindexedArchives: cfg.Package.SearchUnindexedArchives,
+			Scope:                    cfg.Package.Cataloger.ScopeOpt,
+		},
+		Catalogers: cfg.Catalogers,
+	}
 }
 
 func (cfg *Application) LoadAllValues(v *viper.Viper, configPath string) error {
@@ -85,9 +101,18 @@ func (cfg *Application) LoadAllValues(v *viper.Viper, configPath string) error {
 }
 
 func (cfg *Application) parseConfigValues() error {
+	// parse options on this struct
+	var catalogers []string
+	for _, c := range cfg.Catalogers {
+		for _, f := range strings.Split(c, ",") {
+			catalogers = append(catalogers, strings.TrimSpace(f))
+		}
+	}
+	sort.Strings(catalogers)
+	cfg.Catalogers = catalogers
+
 	// parse application config options
 	for _, optionFn := range []func() error{
-		cfg.parseUploadOptions,
 		cfg.parseLogLevelOption,
 		cfg.parseFile,
 	} {
@@ -107,13 +132,6 @@ func (cfg *Application) parseConfigValues() error {
 				return err
 			}
 		}
-	}
-	return nil
-}
-
-func (cfg *Application) parseUploadOptions() error {
-	if cfg.Anchore.Host == "" && cfg.Anchore.Dockerfile != "" {
-		return fmt.Errorf("cannot provide dockerfile option without enabling upload")
 	}
 	return nil
 }
@@ -172,6 +190,7 @@ func loadDefaultValues(v *viper.Viper) {
 	// set the default values for primitive fields in this struct
 	v.SetDefault("quiet", false)
 	v.SetDefault("check-for-app-update", true)
+	v.SetDefault("catalogers", nil)
 
 	// for each field in the configuration struct, see if the field implements the defaultValueLoader interface and invoke it if it does
 	value := reflect.ValueOf(Application{})

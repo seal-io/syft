@@ -3,17 +3,18 @@ package cli
 import (
 	"fmt"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/anchore/syft/cmd/syft/cli/options"
 	"github.com/anchore/syft/cmd/syft/cli/poweruser"
 	"github.com/anchore/syft/internal"
 	"github.com/anchore/syft/internal/config"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const powerUserExample = `  {{.appName}} {{.command}} <image>
   DEPRECATED - THIS COMMAND WILL BE REMOVED in v1.0.0
-  Only image sources are supported (e.g. docker: , podman: , docker-archive: , oci: , etc.), the directory source (dir:) is not supported.
+  Only image sources are supported (e.g. docker: , podman: , docker-archive: , oci: , etc.), the directory source (dir:) is not supported, template outputs are not supported.
   All behavior is controlled via application configuration and environment variables (see https://github.com/anchore/syft#configuration)
 `
 

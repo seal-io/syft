@@ -10,29 +10,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/mholt/archiver/v3"
+	digest "github.com/opencontainers/go-digest"
+	"github.com/spf13/afero"
+
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/internal/log"
-	"github.com/bmatcuk/doublestar/v4"
-	"github.com/mholt/archiver/v3"
-	"github.com/spf13/afero"
+	"github.com/anchore/syft/syft/artifact"
 )
 
 // Source is an object that captures the data source to be cataloged, configuration, and a specific resolver used
 // in cataloging (based on the data source and configuration)
 type Source struct {
-	Image             *image.Image // the image object to be cataloged (image only)
+	id                artifact.ID  `hash:"ignore"`
+	Image             *image.Image `hash:"ignore"` // the image object to be cataloged (image only)
 	Metadata          Metadata
-	directoryResolver *directoryResolver
+	directoryResolver *directoryResolver `hash:"ignore"`
 	path              string
 	mutex             *sync.Mutex
-	Exclusions        []string
+	Exclusions        []string `hash:"ignore"`
 	makeFileResolver  func() (FileResolver, error)
 }
 
@@ -241,28 +244,33 @@ func generateFileSource(fs afero.Fs, location string) (*Source, func(), error) {
 
 // NewFromDirectory creates a new source object tailored to catalog a given filesystem directory recursively.
 func NewFromDirectory(path string) (Source, error) {
-	return Source{
+	s := Source{
 		mutex: &sync.Mutex{},
 		Metadata: Metadata{
 			Scheme: DirectoryScheme,
 			Path:   path,
 		},
 		path: path,
-	}, nil
+	}
+	s.SetID()
+	return s, nil
 }
 
 // NewFromFile creates a new source object tailored to catalog a file.
 func NewFromFile(path string) (Source, func()) {
 	analysisPath, cleanupFn := fileAnalysisPath(path)
 
-	return Source{
+	s := Source{
 		mutex: &sync.Mutex{},
 		Metadata: Metadata{
 			Scheme: FileScheme,
 			Path:   path,
 		},
 		path: analysisPath,
-	}, cleanupFn
+	}
+
+	s.SetID()
+	return s, cleanupFn
 }
 
 // fileAnalysisPath returns the path given, or in the case the path is an archive, the location where the archive
@@ -298,13 +306,86 @@ func NewFromImage(img *image.Image, userImageStr string) (Source, error) {
 		return Source{}, fmt.Errorf("no image given")
 	}
 
-	return Source{
+	s := Source{
 		Image: img,
 		Metadata: Metadata{
 			Scheme:        ImageScheme,
 			ImageMetadata: NewImageMetadata(img, userImageStr),
 		},
-	}, nil
+	}
+	s.SetID()
+	return s, nil
+}
+
+func (s *Source) ID() artifact.ID {
+	if s.id == "" {
+		s.SetID()
+	}
+	return s.id
+}
+
+func (s *Source) SetID() {
+	var d string
+	switch s.Metadata.Scheme {
+	case DirectoryScheme:
+		d = digest.FromString(s.Metadata.Path).String()
+	case FileScheme:
+		// attempt to use the digest of the contents of the file as the ID
+		file, err := os.Open(s.Metadata.Path)
+		if err != nil {
+			d = digest.FromString(s.Metadata.Path).String()
+			break
+		}
+		di, err := digest.FromReader(file)
+		if err != nil {
+			d = digest.FromString(s.Metadata.Path).String()
+			break
+		}
+		d = di.String()
+	case ImageScheme:
+		manifestDigest := digest.FromBytes(s.Metadata.ImageMetadata.RawManifest).String()
+		if manifestDigest != "" {
+			d = manifestDigest
+			break
+		}
+
+		// calcuate chain ID for image sources where manifestDigest is not available
+		// https://github.com/opencontainers/image-spec/blob/main/config.md#layer-chainid
+		d = calculateChainID(s.Metadata.ImageMetadata.Layers)
+		if d == "" {
+			// TODO what happens here if image has no layers?
+			// Is this case possible
+			d = digest.FromString(s.Metadata.ImageMetadata.UserInput).String()
+		}
+	default: // for UnknownScheme we hash the struct
+		id, _ := artifact.IDByHash(s)
+		d = string(id)
+	}
+
+	s.id = artifact.ID(strings.TrimPrefix(d, "sha256:"))
+	s.Metadata.ID = strings.TrimPrefix(d, "sha256:")
+}
+
+func calculateChainID(lm []LayerMetadata) string {
+	if len(lm) < 1 {
+		return ""
+	}
+
+	// DiffID(L0) = digest of layer 0
+	// https://github.com/anchore/stereoscope/blob/1b1b744a919964f38d14e1416fb3f25221b761ce/pkg/image/layer_metadata.go#L19-L32
+	chainID := lm[0].Digest
+	id := chain(chainID, lm[1:])
+
+	return id
+}
+
+func chain(chainID string, layers []LayerMetadata) string {
+	if len(layers) < 1 {
+		return chainID
+	}
+
+	chainID = digest.FromString(layers[0].Digest + " " + chainID).String()
+	return chain(chainID, layers[1:])
 }
 
 func (s *Source) FileResolver(scope Scope) (FileResolver, error) {
@@ -351,7 +432,7 @@ func (s *Source) FileResolver(scope Scope) (FileResolver, error) {
 }
 
 func unarchiveToTmp(path string, unarchiver archiver.Unarchiver) (string, func(), error) {
-	tempDir, err := ioutil.TempDir("", "syft-archive-contents-")
+	tempDir, err := os.MkdirTemp("", "syft-archive-contents-")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("unable to create tempdir for archive processing: %w", err)
 	}
@@ -398,6 +479,9 @@ func getDirectoryExclusionFunctions(root string, exclusions []string) ([]pathFil
 		return nil, err
 	}
 
+	// this handles Windows file paths by converting them to C:/something/else format
+	root = filepath.ToSlash(root)
+
 	if !strings.HasSuffix(root, "/") {
 		root += "/"
 	}
@@ -420,6 +504,8 @@ func getDirectoryExclusionFunctions(root string, exclusions []string) ([]pathFil
 	return []pathFilterFn{
 		func(path string, _ os.FileInfo) bool {
 			for _, exclusion := range exclusions {
+				// this is required to handle Windows filepaths
+				path = filepath.ToSlash(path)
 				matches, err := doublestar.Match(exclusion, path)
 				if err != nil {
 					return false

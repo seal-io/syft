@@ -3,22 +3,20 @@ package integration
 import (
 	"bytes"
 	"fmt"
-	"github.com/anchore/syft/internal/formats/cyclonedxjson"
-	"github.com/anchore/syft/internal/formats/cyclonedxxml"
-	"github.com/anchore/syft/internal/formats/syftjson"
-	"github.com/anchore/syft/syft/source"
-	"github.com/google/go-cmp/cmp"
 	"regexp"
 	"testing"
 
-	"github.com/anchore/syft/syft/sbom"
+	"github.com/google/go-cmp/cmp"
+	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/anchore/syft/syft"
-
-	"github.com/sergi/go-diff/diffmatchpatch"
-
-	"github.com/stretchr/testify/assert"
+	"github.com/anchore/syft/syft/formats/cyclonedxjson"
+	"github.com/anchore/syft/syft/formats/cyclonedxxml"
+	"github.com/anchore/syft/syft/formats/syftjson"
+	"github.com/anchore/syft/syft/sbom"
+	"github.com/anchore/syft/syft/source"
 )
 
 // TestEncodeDecodeEncodeCycleComparison is testing for differences in how SBOM documents get encoded on multiple cycles.
@@ -64,7 +62,7 @@ func TestEncodeDecodeEncodeCycleComparison(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("%s", test.formatOption), func(t *testing.T) {
 			for _, image := range images {
-				originalSBOM, _ := catalogFixtureImage(t, image, source.SquashedScope)
+				originalSBOM, _ := catalogFixtureImage(t, image, source.SquashedScope, nil)
 
 				format := syft.FormatByID(test.formatOption)
 				require.NotNil(t, format)

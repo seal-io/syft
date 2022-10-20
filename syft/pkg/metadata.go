@@ -12,11 +12,12 @@ const (
 
 	UnknownMetadataType          MetadataType = "UnknownMetadata"
 	ApkMetadataType              MetadataType = "ApkMetadata"
+	AlpmMetadataType             MetadataType = "AlpmMetadata"
 	DpkgMetadataType             MetadataType = "DpkgMetadata"
 	GemMetadataType              MetadataType = "GemMetadata"
 	JavaMetadataType             MetadataType = "JavaMetadata"
 	NpmPackageJSONMetadataType   MetadataType = "NpmPackageJsonMetadata"
-	RpmdbMetadataType            MetadataType = "RpmdbMetadata"
+	RpmMetadataType              MetadataType = "RpmMetadata"
 	DartPubMetadataType          MetadataType = "DartPubMetadata"
 	DotnetDepsMetadataType       MetadataType = "DotnetDepsMetadata"
 	PythonPackageMetadataType    MetadataType = "PythonPackageMetadata"
@@ -24,15 +25,21 @@ const (
 	KbPackageMetadataType        MetadataType = "KbPackageMetadata"
 	GolangBinMetadataType        MetadataType = "GolangBinMetadata"
 	PhpComposerJSONMetadataType  MetadataType = "PhpComposerJsonMetadata"
+	CocoapodsMetadataType        MetadataType = "CocoapodsMetadataType"
+	ConanMetadataType            MetadataType = "ConanMetadataType"
+	ConanLockMetadataType        MetadataType = "ConanLockMetadataType"
+	PortageMetadataType          MetadataType = "PortageMetadata"
+	HackageMetadataType          MetadataType = "HackageMetadataType"
 )
 
 var AllMetadataTypes = []MetadataType{
 	ApkMetadataType,
+	AlpmMetadataType,
 	DpkgMetadataType,
 	GemMetadataType,
 	JavaMetadataType,
 	NpmPackageJSONMetadataType,
-	RpmdbMetadataType,
+	RpmMetadataType,
 	DartPubMetadataType,
 	DotnetDepsMetadataType,
 	PythonPackageMetadataType,
@@ -40,15 +47,21 @@ var AllMetadataTypes = []MetadataType{
 	KbPackageMetadataType,
 	GolangBinMetadataType,
 	PhpComposerJSONMetadataType,
+	CocoapodsMetadataType,
+	ConanMetadataType,
+	ConanLockMetadataType,
+	PortageMetadataType,
+	HackageMetadataType,
 }
 
 var MetadataTypeByName = map[MetadataType]reflect.Type{
 	ApkMetadataType:              reflect.TypeOf(ApkMetadata{}),
+	AlpmMetadataType:             reflect.TypeOf(AlpmMetadata{}),
 	DpkgMetadataType:             reflect.TypeOf(DpkgMetadata{}),
 	GemMetadataType:              reflect.TypeOf(GemMetadata{}),
 	JavaMetadataType:             reflect.TypeOf(JavaMetadata{}),
 	NpmPackageJSONMetadataType:   reflect.TypeOf(NpmPackageJSONMetadata{}),
-	RpmdbMetadataType:            reflect.TypeOf(RpmdbMetadata{}),
+	RpmMetadataType:              reflect.TypeOf(RpmMetadata{}),
 	DartPubMetadataType:          reflect.TypeOf(DartPubMetadata{}),
 	DotnetDepsMetadataType:       reflect.TypeOf(DotnetDepsMetadata{}),
 	PythonPackageMetadataType:    reflect.TypeOf(PythonPackageMetadata{}),
@@ -56,4 +69,16 @@ var MetadataTypeByName = map[MetadataType]reflect.Type{
 	KbPackageMetadataType:        reflect.TypeOf(KbPackageMetadata{}),
 	GolangBinMetadataType:        reflect.TypeOf(GolangBinMetadata{}),
 	PhpComposerJSONMetadataType:  reflect.TypeOf(PhpComposerJSONMetadata{}),
+	CocoapodsMetadataType:        reflect.TypeOf(CocoapodsMetadata{}),
+	ConanMetadataType:            reflect.TypeOf(ConanMetadata{}),
+	ConanLockMetadataType:        reflect.TypeOf(ConanLockMetadata{}),
+	PortageMetadataType:          reflect.TypeOf(PortageMetadata{}),
+	HackageMetadataType:          reflect.TypeOf(HackageMetadata{}),
+}
+
+func CleanMetadataType(typ MetadataType) MetadataType {
+	if typ == "RpmdbMetadata" {
+		return RpmMetadataType
+	}
+	return typ
 }

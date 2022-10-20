@@ -7,12 +7,10 @@ import (
 	"io"
 	"regexp"
 
-	"github.com/anchore/syft/internal/log"
-
-	"github.com/anchore/syft/internal"
-
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/anchore/syft/internal"
+	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/pkg/cataloger/common"
@@ -33,6 +31,7 @@ type packageJSON struct {
 	Description  string            `json:"description"`
 	Dependencies map[string]string `json:"dependencies"`
 	Repository   repository        `json:"repository"`
+	Private      bool              `json:"private"`
 }
 
 type author struct {
@@ -217,6 +216,7 @@ func newPackageJSONPackage(p packageJSON) *pkg.Package {
 			Homepage: p.Homepage,
 			URL:      p.Repository.URL,
 			Licenses: licenses,
+			Private:  p.Private,
 		},
 	}
 }
