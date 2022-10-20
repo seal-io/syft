@@ -52,17 +52,21 @@ require (
 )
 
 require (
+	github.com/Masterminds/semver v1.5.0
 	github.com/Masterminds/sprig/v3 v3.2.2
+	github.com/PuerkitoBio/goquery v1.8.0
 	github.com/anchore/stereoscope v0.0.0-20221006201143-d24c9d626b33
 	github.com/docker/docker v20.10.17+incompatible
 	github.com/google/go-containerregistry v0.11.0
 	github.com/in-toto/in-toto-golang v0.4.1-0.20221018183522-731d0640b65f
 	github.com/knqyf263/go-rpmdb v0.0.0-20220629110411-9a3bd2ebb923
+	github.com/masahiro331/go-mvn-version v0.0.0-20210429150710-d3157d602a08
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/sassoftware/go-rpmutils v0.2.0
 	github.com/sigstore/cosign v1.13.0
 	github.com/sigstore/rekor v0.12.1-0.20220915152154-4bb6f441c1b2
 	github.com/sigstore/sigstore v1.4.2
+	github.com/valyala/fasthttp v1.30.0
 	github.com/vbatts/go-mtree v0.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -96,6 +100,7 @@ require (
 	github.com/alibabacloud-go/tea-utils v1.4.4 // indirect
 	github.com/alibabacloud-go/tea-xml v1.1.2 // indirect
 	github.com/aliyun/credentials-go v1.2.3 // indirect
+	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/aws/aws-sdk-go-v2 v1.16.16 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.17.7 // indirect
@@ -255,6 +260,7 @@ require (
 	github.com/transparency-dev/merkle v0.0.1 // indirect
 	github.com/ulikunitz/xz v0.5.10 // indirect
 	github.com/urfave/cli v1.22.7 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/vbatts/tar-split v0.11.2 // indirect
 	github.com/xanzy/go-gitlab v0.73.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect

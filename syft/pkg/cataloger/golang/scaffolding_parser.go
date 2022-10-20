@@ -3,8 +3,6 @@ package golang
 import (
 	"bufio"
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,13 +13,11 @@ import (
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/pkg/cataloger/common"
-	"github.com/anchore/syft/syft/pkg/cataloger/common/command"
 	"github.com/anchore/syft/syft/source"
 )
 
 const (
 	GoSumFileName = "go.sum"
-	GoCommand     = "go"
 )
 
 func scaffoldingParserFn(src *source.Source) common.RawParserFn {
@@ -30,10 +26,9 @@ func scaffoldingParserFn(src *source.Source) common.RawParserFn {
 		parser := scaffoldingGoModuleParser{
 			currentFilepath:  currentFilepath,
 			relativeFilePath: loc.Coordinates.RealPath,
-			currentFileDir:   filepath.Dir(currentFilepath),
-			command:          GoCommand,
 			reader:           r,
 			source:           src,
+			runner:           newRunner(filepath.Dir(currentFilepath)),
 		}
 		return parser.parse()
 	}
@@ -42,10 +37,9 @@ func scaffoldingParserFn(src *source.Source) common.RawParserFn {
 type scaffoldingGoModuleParser struct {
 	currentFilepath  string
 	relativeFilePath string
-	currentFileDir   string
-	command          string
 	reader           io.Reader
 	source           *source.Source
+	runner           *commandRunner
 }
 
 func (p *scaffoldingGoModuleParser) parse() ([]*pkg.Package, []artifact.Relationship, error) {
@@ -65,7 +59,7 @@ func (p *scaffoldingGoModuleParser) parse() ([]*pkg.Package, []artifact.Relation
 	}
 
 	log.Info("parsing all modules for %s", p.currentFilepath)
-	moduleMap, err := p.parseAllModules(ctx)
+	moduleMap, err := p.runner.listAllModules(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,16 +79,10 @@ func (p *scaffoldingGoModuleParser) parse() ([]*pkg.Package, []artifact.Relation
 	return pkgs, relationships, nil
 }
 
-func (p *scaffoldingGoModuleParser) parseCurrentFileModule(ctx context.Context) (*Module, *pkg.Package, *artifact.Relationship, error) {
-	buf, err := p.runGetCurrentModule(ctx)
+func (p *scaffoldingGoModuleParser) parseCurrentFileModule(ctx context.Context) (*pkg.Module, *pkg.Package, *artifact.Relationship, error) {
+	m, err := p.runner.getCurrentModule(ctx)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-
-	m := Module{}
-	decoder := json.NewDecoder(buf)
-	if err = decoder.Decode(&m); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to decode result from get root module, %w", err)
 	}
 
 	to, err := pkg.FileToPackage(p.relativeFilePath)
@@ -113,60 +101,16 @@ func (p *scaffoldingGoModuleParser) parseCurrentFileModule(ctx context.Context) 
 		Type: artifact.DependencyOfRelationship,
 	}
 
-	return &m, to, relation, nil
+	return m, to, relation, nil
 }
 
-func (p *scaffoldingGoModuleParser) parseAllModules(ctx context.Context) (modules map[string]*Module, err error) {
-	buf, err := p.runListAllModules(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	decoder := json.NewDecoder(buf)
-	for decoder.More() {
-		m := &Module{}
-		if err = decoder.Decode(m); err != nil {
-			return nil, fmt.Errorf("failed to decode result from list all modules, %w", err)
-		}
-
-		if modules == nil {
-			modules = make(map[string]*Module)
-		}
-
-		if _, ok := modules[m.Path]; ok {
-			fmt.Println("already exited")
-		}
-		modules[m.Path] = m
-	}
-
-	return modules, nil
-}
-
-func (p *scaffoldingGoModuleParser) filterModules(ctx context.Context, moduleMap map[string]*Module, curModule *Module, curPkg *pkg.Package) ([]*Module, []*pkg.Package, error) {
-	buf, err := p.runModuleWhy(ctx)
+func (p *scaffoldingGoModuleParser) filterModules(ctx context.Context, moduleMap map[string]*pkg.Module, curModule *pkg.Module, curPkg *pkg.Package) ([]*pkg.Module, []*pkg.Package, error) {
+	moduleWhyPkgs, err := p.runner.getWhyModules(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var currentModule string
-	var moduleWhyPkgs = make(map[string][]string)
-	var scanner = bufio.NewScanner(buf)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || strings.HasPrefix(line, "(main module does not need") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "#") {
-			currentModule = strings.TrimPrefix(line, "# ")
-			moduleWhyPkgs[currentModule] = make([]string, 0)
-			continue
-		}
-
-		moduleWhyPkgs[currentModule] = append(moduleWhyPkgs[currentModule], line)
-	}
-
-	var filteredModules []*Module
+	var filteredModules []*pkg.Module
 	var pkgs = []*pkg.Package{curPkg}
 	for _, v := range moduleMap {
 		if ps, ok := moduleWhyPkgs[v.Path]; ok && len(ps) != 0 {
@@ -184,14 +128,14 @@ func (p *scaffoldingGoModuleParser) filterModules(ctx context.Context, moduleMap
 
 func (p *scaffoldingGoModuleParser) parseModuleRelationships(
 	ctx context.Context,
-	curModule *Module,
+	curModule *pkg.Module,
 	curPkg *pkg.Package,
 	relation *artifact.Relationship,
-	modules []*Module,
+	modules []*pkg.Module,
 ) (relationships []artifact.Relationship, err error) {
 
 	relationships = append(relationships, *relation)
-	buf, err := p.runListRelationship(ctx)
+	buf, err := p.runner.runListRelationship(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +150,7 @@ func (p *scaffoldingGoModuleParser) parseModuleRelationships(
 
 		from := fields[0]
 		to := fields[1]
-		fromModule := findModule(modules, from, true)
+		fromModule := pkg.FindModule(modules, from, true)
 		if fromModule == nil {
 			continue
 		}
@@ -214,7 +158,7 @@ func (p *scaffoldingGoModuleParser) parseModuleRelationships(
 		// Go's use minimal version selection strategy to decide final used version, when packages in project depends on multiple version.
 		// But in go mod graph, may show the relation with older version, the replaced final version may not present,
 		// so we query with non-strict mode.
-		toModule := findModule(modules, to, false)
+		toModule := pkg.FindModule(modules, to, false)
 		if toModule == nil {
 			continue
 		}
@@ -237,31 +181,7 @@ func (p *scaffoldingGoModuleParser) parseModuleRelationships(
 	return relationships, nil
 }
 
-func (p *scaffoldingGoModuleParser) runGetCurrentModule(ctx context.Context) (io.Reader, error) {
-	// go list -mod readonly -json -m
-	args := "list -mod readonly -json -m"
-	return command.RunCommand(ctx, p.command, p.currentFileDir, strings.Split(args, " ")...)
-}
-
-func (p *scaffoldingGoModuleParser) runListAllModules(ctx context.Context) (io.Reader, error) {
-	// go list -mod readonly -json -m
-	args := "list -mod readonly -json -m all"
-	return command.RunCommand(ctx, p.command, p.currentFileDir, strings.Split(args, " ")...)
-}
-
-func (p *scaffoldingGoModuleParser) runListRelationship(ctx context.Context) (io.Reader, error) {
-	// go mod graph
-	args := "mod graph"
-	return command.RunCommand(ctx, p.command, p.currentFileDir, strings.Split(args, " ")...)
-}
-
-func (p *scaffoldingGoModuleParser) runModuleWhy(ctx context.Context) (io.Reader, error) {
-	// go mod why -vendor -m all
-	args := "mod why -vendor -m all"
-	return command.RunCommand(ctx, p.command, p.currentFileDir, strings.Split(args, " ")...)
-}
-
-func moduleToPackage(curModule, module *Module) *pkg.Package {
+func moduleToPackage(curModule, module *pkg.Module) *pkg.Package {
 	p := &pkg.Package{
 		Name:     module.Path,
 		Version:  module.Version,

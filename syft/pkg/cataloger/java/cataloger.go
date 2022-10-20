@@ -8,6 +8,11 @@ import (
 	"github.com/anchore/syft/syft/source"
 )
 
+const (
+	pomFilePattern    = "**/pom.xml"
+	gradleFilePattern = "**/build.gradle"
+)
+
 // NewJavaCataloger returns a new Java archive cataloger object.
 func NewJavaCataloger(src *source.Source, cfg Config) *common.GenericCataloger {
 	// java build tool matching
@@ -17,8 +22,8 @@ func NewJavaCataloger(src *source.Source, cfg Config) *common.GenericCataloger {
 			source: src,
 		}
 		rawGlobParsers := map[string]common.RawParserFn{
-			"**/pom.xml":      javaScaffoldingParserFn(mavenScaffolding, opts),
-			"**/build.gradle": javaScaffoldingParserFn(gradleScaffolding, opts),
+			pomFilePattern:    javaScaffoldingParserFn(mavenScaffolding, opts),
+			gradleFilePattern: javaScaffoldingParserFn(gradleScaffolding, opts),
 		}
 
 		return common.NewGenericCatalogerWithPreciseLocation(nil, rawGlobParsers, "java-scaffolding-cataloger")

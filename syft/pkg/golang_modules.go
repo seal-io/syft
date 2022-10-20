@@ -1,8 +1,9 @@
-package golang
+package pkg
 
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Module struct {
@@ -12,10 +13,13 @@ type Module struct {
 }
 
 type ModuleInfo struct {
-	Version   string `json:"Version,omitempty"`
-	Path      string `json:"Path,omitempty"`
-	GoMod     string `json:"GoMod,omitempty"`
-	GoVersion string `json:"GoVersion,omitempty"`
+	Time      time.Time `json:"Time,omitempty"`
+	Version   string    `json:"Version,omitempty"`
+	Path      string    `json:"Path,omitempty"`
+	GoMod     string    `json:"GoMod,omitempty"`
+	GoVersion string    `json:"GoVersion,omitempty"`
+	Versions  []string  `json:"Versions,omitempty"`
+	Indirect  bool      `json:"Indirect,omitempty"`
 }
 
 func (m *Module) String() string {
@@ -25,7 +29,7 @@ func (m *Module) String() string {
 	return fmt.Sprintf("%s@%s", m.Path, m.Version)
 }
 
-func findModule(modules []*Module, query string, strict bool) *Module {
+func FindModule(modules []*Module, query string, strict bool) *Module {
 	for i := range modules {
 		if query == modules[i].String() || (!strict && strings.HasPrefix(query, modules[i].Path+"@")) {
 			return modules[i]

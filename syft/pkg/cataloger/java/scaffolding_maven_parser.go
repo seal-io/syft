@@ -15,7 +15,7 @@ import (
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
-	"github.com/anchore/syft/syft/pkg/cataloger/common/command"
+	"github.com/anchore/syft/syft/pkg/command"
 	"github.com/anchore/syft/syft/source"
 	"github.com/google/uuid"
 )
