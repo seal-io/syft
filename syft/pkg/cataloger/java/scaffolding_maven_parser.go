@@ -20,6 +20,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	// PackagingTypePom means packaging type pom in pom.xml, which helps to create aggregators and parent projects.
+	PackagingTypePom = "pom"
+)
+
 var (
 	mavenDependencyPattern = regexp.MustCompile(`(?P<groupId>[-\w.+]+):(?P<artifactId>[-\w.+]+):(?P<type>[-\w.+]+):(?P<version>[-\w.+]+)`)
 	mavenDigraphPattern    = regexp.MustCompile(`digraph \"[-:.\w]+\"`)
@@ -50,14 +55,15 @@ type mavenScaffoldingParser struct {
 // parse generate the packages and relationships for current project
 func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package, relationships []artifact.Relationship, berr error) {
 	log.Infof("parsing maven dependency file %s", p.currentFilepath)
-	isSubproject, curProj, err := p.parseCurrentFile()
+	isAggregatePom, curProj, err := p.parseCurrentPomFile()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing pom xml: %w", err)
 	}
 
-	if isSubproject {
-		// since root project can take over the full transitive dependencies,
-		// ignore subprojects
+	if isAggregatePom {
+		// since the sub pom file can include all their dependencies, includes the configures inherited from aggregate pom file,
+		// and while user just defined parent configure in the submodules, we won't be able to detect them.
+		// so ignore the aggregate pom file
 		log.Infof("ignore maven subproject dependency file %s", p.currentFilepath)
 		return
 	}
@@ -87,18 +93,18 @@ func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package
 	return pkgs, relationships, nil
 }
 
-// parseCurrentFile get project gav from current file, and generate relation between source and current file
-func (p *mavenScaffoldingParser) parseCurrentFile() (bool, *pkg.PomProject, error) {
-	proj, err := parsePomXMLProject(p.relativeFilePath, p.reader)
+// parseCurrentFile return whether current pom.xml is aggregate packaging type and get project from pom.xml
+func (p *mavenScaffoldingParser) parseCurrentPomFile() (bool, *pkg.PomProject, error) {
+	pom, err := decodePomXML(p.reader)
 	if err != nil {
 		return false, nil, fmt.Errorf("error parsing pom xml: %w", err)
 	}
 
-	if p.isSubproject(proj) {
+	if pom.Packaging == PackagingTypePom {
 		return true, nil, nil
 	}
 
-	return false, proj, nil
+	return false, newPomProject(p.relativeFilePath, pom), nil
 }
 
 // parseDependencies parse dependencies tree
