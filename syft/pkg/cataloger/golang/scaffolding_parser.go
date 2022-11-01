@@ -48,10 +48,17 @@ type scaffoldingGoModuleParser struct {
 	source           *source.Source
 }
 
-func (p *scaffoldingGoModuleParser) parse() ([]*pkg.Package, []artifact.Relationship, error) {
+func (p *scaffoldingGoModuleParser) parse() (pkgs []*pkg.Package, relationships []artifact.Relationship, err error) {
 	// lock file isn't existed, fall back to parse go.mod
-	if _, err := os.Stat(filepath.Join(filepath.Dir(p.currentFilepath), GoSumFileName)); err != nil {
-		return parseGoMod(p.currentFilepath, p.reader)
+	defer func() {
+		if err != nil {
+			log.Errorf("failed in scaffolding go module parse, file %s, fall back to parse go.mod: %v", p.relativeFilePath, err)
+			pkgs, relationships, err = parseGoMod(p.currentFilepath, p.reader)
+		}
+	}()
+
+	if _, err = os.Stat(filepath.Join(filepath.Dir(p.currentFilepath), GoSumFileName)); err != nil {
+		return
 	}
 
 	log.Infof("parsing dependency file %s by scaffolding", p.currentFilepath)
@@ -59,30 +66,37 @@ func (p *scaffoldingGoModuleParser) parse() ([]*pkg.Package, []artifact.Relation
 	defer cancel()
 
 	log.Info("parsing current module for %s", p.currentFilepath)
-	curModule, curPkg, curRelation, err := p.parseCurrentFileModule(ctx)
+	var (
+		curModule   *Module
+		curPkg      *pkg.Package
+		curRelation *artifact.Relationship
+	)
+	curModule, curPkg, curRelation, err = p.parseCurrentFileModule(ctx)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	log.Info("parsing all modules for %s", p.currentFilepath)
-	moduleMap, err := p.parseAllModules(ctx)
+	var moduleMap map[string]*Module
+	moduleMap, err = p.parseAllModules(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	filteredModules, pkgs, err := p.filterModules(ctx, moduleMap, curModule, curPkg)
+	var filteredModules []*Module
+	filteredModules, pkgs, err = p.filterModules(ctx, moduleMap, curModule, curPkg)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	log.Info("generating dependency tree for %s", p.currentFilepath)
-	relationships, err := p.parseModuleRelationships(ctx, curModule, curPkg, curRelation, filteredModules)
+	relationships, err = p.parseModuleRelationships(ctx, curModule, curPkg, curRelation, filteredModules)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	log.Infof("finished parsing dependency file %s, found %d packages, %d relationships", p.currentFilepath, len(pkgs), len(relationships))
-	return pkgs, relationships, nil
+	return
 }
 
 func (p *scaffoldingGoModuleParser) parseCurrentFileModule(ctx context.Context) (*Module, *pkg.Package, *artifact.Relationship, error) {
