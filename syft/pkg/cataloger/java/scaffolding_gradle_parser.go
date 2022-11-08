@@ -43,7 +43,7 @@ type gradleScaffoldingParser struct {
 
 // parse generate the packages and relationships for current project
 func (p *gradleScaffoldingParser) parse(ctx context.Context) ([]*pkg.Package, []artifact.Relationship, error) {
-	log.Infof("parsing gradle property for file %s", p.currentFilePath)
+	log.Infof("parsing gradle dependency file %s with mode %s", p.currentFilePath, p.mode)
 	isSubProject, curProj, projects, err := p.parseCurrentFile(ctx)
 	if err != nil {
 		return nil, nil, err

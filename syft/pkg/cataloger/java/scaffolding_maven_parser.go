@@ -54,7 +54,7 @@ type mavenScaffoldingParser struct {
 
 // parse generate the packages and relationships for current project
 func (p *mavenScaffoldingParser) parse(ctx context.Context) (pkgs []*pkg.Package, relationships []artifact.Relationship, berr error) {
-	log.Infof("parsing maven dependency file %s", p.currentFilepath)
+	log.Infof("parsing maven dependency file %s with mode %s", p.currentFilepath, p.mode)
 	isAggregatePom, curProj, err := p.parseCurrentPomFile()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing pom xml: %w", err)
