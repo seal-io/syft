@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/pkg/cataloger/common"
@@ -51,11 +53,16 @@ func parseScaffolding(target scaffolding, location source.Location, reader io.Re
 			// temporary build directory
 			return nil, nil, nil
 		}
-
 		mavenParser := newMavenScaffoldingParser(mode, currentFilepath, relativeFilePath, reader, options.source)
 		pkgs, relationships, err = mavenParser.parse(ctx)
 		if err != nil {
-			return nil, nil, err
+			log.Warnf("failed in scaffolding maven parse, file %s, fall back to parse pom.xml: %v", location.RealPath, err)
+			file, err := os.Open(currentFilepath)
+			if err != nil {
+				return nil, nil, err
+			}
+			defer file.Close()
+			return parserPomXML(relativeFilePath, file)
 		}
 	case gradleScaffolding:
 		gradleParser := newGradleScaffoldingParser(mode, currentFilepath, relativeFilePath, options.source)
