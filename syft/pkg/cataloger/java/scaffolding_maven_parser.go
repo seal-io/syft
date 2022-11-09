@@ -260,14 +260,14 @@ func (p *mavenScaffoldingParser) runGetDependencies(ctx context.Context, outputF
 	}
 
 	cmdArgs += " -DoutputFile=" + outputFileName
-	stderr := &bytes.Buffer{}
-	cmd, err := command.NewCommand(ctx, p.command, p.currentDirPath, nil, stderr, strings.Split(cmdArgs, " ")...)
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd, err := command.NewCommand(ctx, p.command, p.currentDirPath, stdout, stderr, strings.Split(cmdArgs, " ")...)
 	if err != nil {
 		return fmt.Errorf("error creating maven transitive dependencies discovery: %w", err)
 	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error running maven transitive dependencies discovery: %w, stderr: %s", err, stderr.String())
+	if err = cmd.Run(); err != nil {
+		return fmt.Errorf("error running maven transitive dependencies discovery: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
 	}
 	return nil
 }
