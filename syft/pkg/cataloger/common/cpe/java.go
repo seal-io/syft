@@ -193,7 +193,8 @@ func groupIDsFromPomProperties(properties *pkg.PomProperties) (groupIDs []string
 		return nil
 	}
 
-	if startsWithTopLevelDomain(properties.GroupID) {
+	// NB(thxCode): respect the raw group id at first.
+	if properties.GroupID != "" {
 		groupIDs = append(groupIDs, cleanGroupID(properties.GroupID))
 	}
 
