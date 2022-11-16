@@ -34,6 +34,10 @@ func (p *Package) OverrideID(id artifact.ID) {
 }
 
 func (p *Package) SetID() {
+	if p.id != "" {
+		return
+	}
+
 	id, err := artifact.IDByHash(p)
 	if err != nil {
 		// TODO: what to do in this case?
