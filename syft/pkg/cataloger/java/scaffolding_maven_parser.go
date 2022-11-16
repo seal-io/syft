@@ -106,13 +106,13 @@ func (p *mavenScaffoldingParser) parseCurrentPomFile() (bool, *pkg.PomProject, e
 // nolint: nolintlint,nakedret
 // parseDependencies parse dependencies tree
 func (p *mavenScaffoldingParser) parseDependencies(cmdOutputFile *os.File, curProj *pkg.PomProject) (pkgs []*pkg.Package, relationships []artifact.Relationship, err error) {
-	curPkg, curRelation, err := p.genCurrentFileDep()
+	curPkg, err := p.genCurrentFileDep()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pkgs = []*pkg.Package{curPkg}
-	relationships = []artifact.Relationship{*curRelation}
+	relationships = []artifact.Relationship{}
 	dependenciesCmdOutputScanner := bufio.NewScanner(cmdOutputFile)
 	for dependenciesCmdOutputScanner.Scan() {
 		// process
@@ -209,18 +209,8 @@ func (p *mavenScaffoldingParser) parseDigraphLine(line string, curPkg *pkg.Packa
 	return pg, relation, nil
 }
 
-func (p *mavenScaffoldingParser) genCurrentFileDep() (*pkg.Package, *artifact.Relationship, error) {
-	to, err := pkg.FileToPackage(p.relativeFilepath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	from, err := pkg.FileToPackage(p.relativeDir)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return to, toRelation(from, to), nil
+func (p *mavenScaffoldingParser) genCurrentFileDep() (*pkg.Package, error) {
+	return pkg.FileToPackage(p.relativeFilepath)
 }
 
 func (p *mavenScaffoldingParser) runGetDependencies(ctx context.Context, outputFileName string) error {
